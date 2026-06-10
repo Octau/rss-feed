@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     url TEXT NOT NULL,
     name TEXT NOT NULL,
     webhook_url TEXT NOT NULL,
-    interval_seconds INTEGER NOT NULL DEFAULT 300,
+    feed_type TEXT NOT NULL DEFAULT 'generic',
+    interval_seconds INTEGER NOT NULL DEFAULT 14400,
     added_by INTEGER NOT NULL,
     etag TEXT,
     last_modified TEXT,
@@ -32,6 +33,13 @@ async def init(path: str) -> None:
     _conn.row_factory = aiosqlite.Row
     await _conn.execute("PRAGMA foreign_keys = ON")
     await _conn.executescript(SCHEMA)
+    # CREATE TABLE IF NOT EXISTS won't alter pre-existing DBs, so patch in
+    # columns added after the first release.
+    cur = await _conn.execute("PRAGMA table_info(feeds)")
+    columns = {row["name"] for row in await cur.fetchall()}
+    if "feed_type" not in columns:
+        await _conn.execute(
+            "ALTER TABLE feeds ADD COLUMN feed_type TEXT NOT NULL DEFAULT 'generic'")
     await _conn.commit()
 
 
@@ -41,13 +49,14 @@ async def close() -> None:
 
 
 async def add_feed(guild_id: int, url: str, name: str, webhook_url: str,
-                   interval: int, added_by: int) -> int | None:
+                   interval: int, added_by: int,
+                   feed_type: str = "generic") -> int | None:
     """Returns the new feed id, or None if the URL is already registered."""
     try:
         cur = await _conn.execute(
-            "INSERT INTO feeds (guild_id, url, name, webhook_url, interval_seconds, added_by)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
-            (guild_id, url, name, webhook_url, interval, added_by),
+            "INSERT INTO feeds (guild_id, url, name, webhook_url, interval_seconds,"
+            " added_by, feed_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, url, name, webhook_url, interval, added_by, feed_type),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -92,7 +101,9 @@ async def set_interval(feed_id: int, seconds: int) -> None:
 
 
 async def mark_due(feed_id: int) -> None:
-    await _conn.execute("UPDATE feeds SET last_polled = 0 WHERE id = ?", (feed_id,))
+    await _conn.execute(
+        "UPDATE feeds SET last_polled = 0, etag = NULL, last_modified = NULL WHERE id = ?",
+        (feed_id,))
     await _conn.commit()
 
 

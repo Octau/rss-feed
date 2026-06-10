@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 
 import discord
@@ -12,10 +13,22 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 PREFIX = os.getenv('BOT_PREFIX', '!')
 DATA_DIR = os.getenv('DATA_DIR', 'data')
+LOG_DIR = os.path.join('storage', 'logs')
 
+os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.handlers.TimedRotatingFileHandler(
+            os.path.join(LOG_DIR, 'bot.log'),
+            when='D',
+            interval=3,
+            backupCount=14,
+            encoding='utf-8',
+        ),
+    ],
 )
 
 intents = discord.Intents.default()
@@ -27,6 +40,8 @@ class RSSBot(commands.Bot):
         os.makedirs(DATA_DIR, exist_ok=True)
         await db.init(os.path.join(DATA_DIR, 'rss.sqlite3'))
         await self.load_extension('cogs.rss')
+        synced = await self.tree.sync()
+        logging.getLogger('bot').info('Synced %d slash command(s)', len(synced))
 
     async def close(self):
         await super().close()
@@ -42,14 +57,14 @@ async def on_ready():
     print('------')
 
 
-@bot.command(name='ping')
-async def ping(ctx):
+@bot.hybrid_command(name='ping')
+async def ping(ctx: commands.Context):
     """Responds with pong and the gateway latency"""
     await ctx.send(f'Pong! `{bot.latency * 1000:.0f}ms`')
 
 
-@bot.command(name='hello')
-async def hello(ctx):
+@bot.hybrid_command(name='hello')
+async def hello(ctx: commands.Context):
     """Greets the user"""
     await ctx.send(f'Hello {ctx.author.name}!')
 
@@ -59,4 +74,4 @@ if __name__ == '__main__':
         print('Error: DISCORD_TOKEN not found in .env file')
         print('Please create a .env file with your Discord bot token')
         exit(1)
-    bot.run(TOKEN)
+    bot.run(TOKEN, log_handler=None)

@@ -7,6 +7,15 @@ services:
       - DATA_DIR=/data
     volumes:
       - bot-data:/data
+      - .:/app
+    develop:
+      watch:
+        - action: restart
+          path: .
+          ignore:
+            - venv/
+            - __pycache__/
+            - .git/
 
 volumes:
   bot-data:

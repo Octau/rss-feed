@@ -219,3 +219,6 @@ __marimo__/
 
 # Bot state (SQLite database)
 data/
+
+# Bot logs
+storage/logs/
