@@ -270,6 +270,9 @@ class RSS(commands.Cog):
                     "❌ The webhook rejected a test message, so the feed was not "
                     "added. Check that the webhook still exists.")
 
+        log.info("Feed %s added: %r (%s) type=%s interval=%ss in guild %s by user %s",
+                 feed_id, name, feed_url, feed_type, interval,
+                 ctx.guild.id, ctx.author.id)
         embed = discord.Embed(title="✅ Feed added", color=RSS_COLOR)
         if parsed.entries:
             embed.description = "The newest item was posted via the webhook as a preview."
@@ -289,6 +292,9 @@ class RSS(commands.Cog):
         if feed is None:
             return await ctx.send("❌ No feed with that id/URL in this server.")
         await db.remove_feed(feed["id"])
+        log.info("Feed %s removed: %r (%s) in guild %s by user %s",
+                 feed["id"], feed["name"], feed["url"],
+                 ctx.guild.id, ctx.author.id)
         await ctx.send(f"🗑️ Removed **{feed['name']}** (`{feed['url']}`).")
 
     @rss.command(name="list")

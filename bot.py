@@ -6,6 +6,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
+import adapters
 import db
 
 load_dotenv()
@@ -40,6 +41,8 @@ class RSSBot(commands.Bot):
         os.makedirs(DATA_DIR, exist_ok=True)
         await db.init(os.path.join(DATA_DIR, 'rss.sqlite3'))
         await self.load_extension('cogs.rss')
+        logging.getLogger('bot').info(
+            'Feed types: %s', ', '.join(adapters.FEED_TYPES))
         synced = await self.tree.sync()
         logging.getLogger('bot').info('Synced %d slash command(s)', len(synced))
 

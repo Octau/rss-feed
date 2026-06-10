@@ -20,6 +20,7 @@ aiosqlite, aiohttp, python-dotenv.
 | `cogs/rss.py` | The whole feature: `rss` command group, the 60s `poller` task loop, fetch/parse/announce helpers. |
 | `adapters/__init__.py` | Adapter registry. Scans the package at import; any module exporting `ADAPTER` is registered under its `feed_type`. Exposes `FEED_TYPES` (`("generic", *sorted(ADAPTERS))`) and `adapt_entries(feed_type, parsed)` — the one entry point the cog uses; `"generic"`/unknown types fall back to raw feedparser entries. |
 | `adapters/f5.py` | Adapter for the F5 Support (NGINX) RSS feed (`feed_type = "f5"`): typed `F5RSSFeed`/`F5RSSItem` dataclasses capturing F5's extra `copyright`/`ttl` channel fields, built via `from_parsed` (feedparser) or `from_dict` (raw `{channel: {items}}` shape); `entries()` yields dicts compatible with `entry_key`/`build_embed`. |
+| `adapters/royalroad.py` | Adapter for Royal Road fiction feeds (`feed_type = "royalroad"`): same dataclass/`from_parsed`/`from_dict` pattern as f5. Captures the `generator` channel field (no `copyright`/`ttl`) and the `guid` element's `isPermaLink` attribute (feedparser: `entry.guidislink`); HTML-rich `description` is passed through untouched for `clean_summary()` to strip at embed time. |
 
 ## Data flow (poll cycle)
 
