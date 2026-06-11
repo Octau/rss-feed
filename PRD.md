@@ -121,7 +121,7 @@ boundaries. Footer shows `Page N of M`. Views are persistent (no 15-minute expir
 12. `rss list` — paginated with `FeedListView` (10/page, persistent)
 13. Update help embed with new commands
 
-### Phase 4 — Adapter docs
+### Phase 4 — Adapter docs ✅
 14. Add adapter authoring guide to `README.md`
 
 ---
