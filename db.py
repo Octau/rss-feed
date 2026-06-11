@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS feeds (
     last_polled REAL NOT NULL DEFAULT 0,
     fail_count INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
-    icon_url TEXT,
     UNIQUE (guild_id, url)
 );
 
@@ -49,9 +48,6 @@ async def init(path: str) -> None:
     if "last_error" not in columns:
         await _conn.execute(
             "ALTER TABLE feeds ADD COLUMN last_error TEXT")
-    if "icon_url" not in columns:
-        await _conn.execute(
-            "ALTER TABLE feeds ADD COLUMN icon_url TEXT")
     await _conn.commit()
 
 
@@ -62,14 +58,13 @@ async def close() -> None:
 
 async def add_feed(guild_id: int, url: str, name: str, webhook_url: str,
                    interval: int, added_by: int,
-                   feed_type: str = "generic",
-                   icon_url: str | None = None) -> int | None:
+                   feed_type: str = "generic") -> int | None:
     """Returns the new feed id, or None if the URL is already registered."""
     try:
         cur = await _conn.execute(
             "INSERT INTO feeds (guild_id, url, name, webhook_url, interval_seconds,"
-            " added_by, feed_type, icon_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (guild_id, url, name, webhook_url, interval, added_by, feed_type, icon_url),
+            " added_by, feed_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (guild_id, url, name, webhook_url, interval, added_by, feed_type),
         )
     except aiosqlite.IntegrityError:
         return None
@@ -117,8 +112,7 @@ async def update_feed(feed_id: int, *,
                       name: str | None = None,
                       webhook_url: str | None = None,
                       feed_type: str | None = None,
-                      interval_seconds: int | None = None,
-                      icon_url: str | None = None) -> None:
+                      interval_seconds: int | None = None) -> None:
     """Edit one or more mutable fields on a feed."""
     fields: dict[str, object] = {}
     if name is not None:
@@ -129,8 +123,6 @@ async def update_feed(feed_id: int, *,
         fields["feed_type"] = feed_type
     if interval_seconds is not None:
         fields["interval_seconds"] = interval_seconds
-    if icon_url is not None:
-        fields["icon_url"] = icon_url
     if not fields:
         return
     set_clause = ", ".join(f"{k} = ?" for k in fields)
