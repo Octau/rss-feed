@@ -12,6 +12,7 @@ import discord
 import feedparser
 from discord import app_commands
 from discord.ext import commands, tasks
+from urllib.parse import urlparse
 
 import adapters
 import db
@@ -31,6 +32,21 @@ TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = 3600          # cap backoff at 1 hour
 PAGE_SIZE = 10              # feeds per page in rss list
+
+
+def extract_icon_url(parsed) -> str | None:
+    """Best-effort site icon from a parsed feed: feed image first, then favicon.ico."""
+    img = parsed.feed.get("image") or {}
+    href = (img.get("href") or img.get("url")) if isinstance(img, dict) else (
+        getattr(img, "href", None) or getattr(img, "url", None))
+    if href:
+        return href
+    site = parsed.feed.get("link")
+    if site:
+        p = urlparse(site)
+        if p.scheme and p.netloc:
+            return f"{p.scheme}://{p.netloc}/favicon.ico"
+    return None
 
 
 def entry_key(entry) -> str:
@@ -216,7 +232,8 @@ class RSS(commands.Cog):
         embed.set_footer(text=f"Will retry. Next attempt in ~{backoff_s // 60}m.")
         try:
             webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
-            await webhook.send(embed=embed, username=feed["name"][:80])
+            await webhook.send(embed=embed, username=feed["name"][:80],
+                               avatar_url=feed["icon_url"] or None)
         except Exception:
             log.warning("Could not send failure alert for feed %s", feed["id"])
 
@@ -254,6 +271,7 @@ class RSS(commands.Cog):
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entry),
                 username=feed["name"][:80],
+                avatar_url=feed["icon_url"] or None,
             )
             await asyncio.sleep(SEND_SPACING)
         log.info("Feed %s (%s): announced %d new item(s)",
@@ -267,7 +285,8 @@ class RSS(commands.Cog):
         )
         try:
             webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
-            await webhook.send(embed=embed, username=feed["name"][:80])
+            await webhook.send(embed=embed, username=feed["name"][:80],
+                               avatar_url=feed["icon_url"] or None)
         except Exception:
             log.warning("Could not send recovery notice for feed %s", feed["id"])
 
@@ -303,10 +322,11 @@ class RSS(commands.Cog):
             return await interaction.followup.send("❌ That URL doesn't look like a valid RSS/Atom feed.")
 
         name = parsed.feed.get("title") or feed_url
+        icon_url = extract_icon_url(parsed)
         entries = adapters.adapt_entries(feed_type, parsed)
         feed_id = await db.add_feed(
             interaction.guild_id, feed_url, name, webhook_url, interval,
-            interaction.user.id, feed_type)
+            interaction.user.id, feed_type, icon_url)
         if feed_id is None:
             return await interaction.followup.send("❌ That feed is already registered in this server.")
 
@@ -320,6 +340,7 @@ class RSS(commands.Cog):
                 await webhook.send(
                     embed=build_embed(name, feed_url, entries[0]),
                     username=name[:80],
+                    avatar_url=icon_url,
                 )
             except discord.HTTPException:
                 await db.remove_feed(feed_id)
@@ -400,6 +421,7 @@ class RSS(commands.Cog):
         if interval is not None:
             interval = max(interval, MIN_INTERVAL)
 
+        new_icon_url: str | None = None
         if feed_type is not None and feed_type != feed["feed_type"]:
             try:
                 parsed, etag, last_modified = await self.fetch_feed(feed["url"])
@@ -407,6 +429,7 @@ class RSS(commands.Cog):
                 return await send(f"❌ Couldn't fetch the feed to verify the new type: `{exc}`")
             if parsed is None or (parsed.bozo and not parsed.entries):
                 return await send("❌ Feed returned no entries for the new adapter.")
+            new_icon_url = extract_icon_url(parsed)
             entries = adapters.adapt_entries(feed_type, parsed)
             effective_webhook = webhook or feed["webhook_url"]
             if entries:
@@ -415,6 +438,7 @@ class RSS(commands.Cog):
                     await wh.send(
                         embed=build_embed(feed["name"], feed["url"], entries[0]),
                         username=(name or feed["name"])[:80],
+                        avatar_url=new_icon_url or feed["icon_url"],
                     )
                 except discord.HTTPException as exc:
                     return await send(
@@ -427,6 +451,7 @@ class RSS(commands.Cog):
             webhook_url=webhook,
             feed_type=feed_type,
             interval_seconds=interval,
+            icon_url=new_icon_url,
         )
         log.info("Feed %s edited in guild %s by user %s",
                  feed["id"], interaction.guild_id, interaction.user.id)
@@ -518,6 +543,7 @@ class RSS(commands.Cog):
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entries[0]),
                 username=feed["name"][:80],
+                avatar_url=feed["icon_url"] or None,
             )
         except discord.HTTPException as exc:
             return await interaction.followup.send(f"❌ Webhook rejected the message: `{exc}`")
