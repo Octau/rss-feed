@@ -6,7 +6,6 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 import aiohttp
 import discord
@@ -32,21 +31,6 @@ TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = 3600          # cap backoff at 1 hour
 PAGE_SIZE = 10              # feeds per page in rss list
-
-
-class FeedTypeConverter(commands.Converter[str]):
-    """Feed type argument for prefix commands. Raising on unknown tokens lets
-    an Optional[FeedTypeConverter] parameter backtrack: when the first word
-    isn't a feed type, discord.py passes None and re-reads the token as the
-    next parameter — so the type can be omitted in `rss add`."""
-
-    async def convert(self, ctx: commands.Context, argument: str) -> str:
-        argument = argument.lower()
-        if argument not in adapters.FEED_TYPES:
-            raise commands.BadArgument(
-                f"Unknown feed type `{argument}` "
-                f"(available: {', '.join(adapters.FEED_TYPES)})")
-        return argument
 
 
 def entry_key(entry) -> str:
@@ -134,6 +118,12 @@ class FeedListView(discord.ui.View):
 
 class RSS(commands.Cog):
     """Manage RSS feeds that get announced through Discord webhooks."""
+
+    rss = app_commands.Group(
+        name="rss",
+        description="Manage RSS feed subscriptions",
+        guild_only=True,
+    )
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -283,89 +273,46 @@ class RSS(commands.Cog):
 
     # ---------------------------------------------------------------- commands
 
-    @commands.hybrid_group(invoke_without_command=True, fallback="help")
-    @commands.guild_only()
-    async def rss(self, ctx: commands.Context):
-        """Show RSS command help."""
-        prefix = ctx.clean_prefix
-        embed = discord.Embed(title="RSS commands", color=RSS_COLOR)
-        embed.add_field(
-            name=f"{prefix}rss add [type] <feed_url> <webhook_url> [interval_seconds]",
-            value="Start polling a feed and announce new items via the webhook. "
-                  f"Types: {', '.join(adapters.FEED_TYPES)}.",
-            inline=False)
-        embed.add_field(name=f"{prefix}rss remove <id|url>",
-                        value="Stop polling a feed.", inline=False)
-        embed.add_field(name=f"{prefix}rss list",
-                        value="List feeds registered in this server.", inline=False)
-        embed.add_field(name=f"{prefix}rss interval <id|url> <seconds>",
-                        value=f"Change the polling interval (min {MIN_INTERVAL}s).",
-                        inline=False)
-        embed.add_field(name=f"{prefix}rss poll <id|url>",
-                        value="Queue a feed to be polled on the next cycle.", inline=False)
-        embed.add_field(
-            name=f"{prefix}rss edit <id|url> [name] [webhook] [interval] [type]",
-            value="Edit a feed's name, webhook, interval, or type without re-adding it.",
-            inline=False)
-        embed.add_field(name=f"{prefix}rss status",
-                        value="Show feeds with consecutive polling failures.", inline=False)
-        await ctx.send(embed=embed)
-
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
+    @rss.command(name="add")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
-        feed_type="Feed type — picks the adapter used to parse entries",
         feed_url="The RSS/Atom feed URL to poll",
         webhook_url="Discord webhook URL where new entries are announced",
         interval=f"Polling interval in seconds (min {MIN_INTERVAL})",
+        feed_type="Feed type — picks the adapter used to parse entries",
     )
     @app_commands.choices(feed_type=[
         app_commands.Choice(name=t, value=t) for t in adapters.FEED_TYPES])
-    async def add(self, ctx: commands.Context,
-                  feed_type: Optional[FeedTypeConverter], feed_url: str,
-                  webhook_url: str, interval: int = DEFAULT_INTERVAL):
+    async def add(self, interaction: discord.Interaction,
+                  feed_url: str, webhook_url: str,
+                  interval: int = DEFAULT_INTERVAL,
+                  feed_type: str = adapters.GENERIC):
         """Start polling a feed and announce new items via the webhook."""
-        if ctx.interaction:
-            # Slash invocation: options aren't shown in the channel, so the
-            # webhook URL stays private — just reply ephemerally. Deferring
-            # also buys time past the 3s interaction deadline for the fetch.
-            await ctx.defer(ephemeral=True)
-        else:
-            try:
-                await ctx.message.delete()
-            except discord.HTTPException:
-                await ctx.send("⚠️ Couldn't delete your message — consider deleting it "
-                               "yourself, it contains the webhook URL.")
+        # Defer ephemerally so the webhook URL stays private and we beat the 3s deadline.
+        await interaction.response.defer(ephemeral=True)
 
         if not WEBHOOK_RE.match(webhook_url):
-            return await ctx.send("❌ That doesn't look like a Discord webhook URL.")
+            return await interaction.followup.send("❌ That doesn't look like a Discord webhook URL.")
         interval = max(interval, MIN_INTERVAL)
-        # The converter (prefix) and choices (slash) both constrain the value;
-        # None means the type was omitted.
-        feed_type = feed_type or adapters.GENERIC
 
-        # Validate the feed before saving it.
         try:
             parsed, etag, last_modified = await self.fetch_feed(feed_url)
         except Exception as exc:
-            return await ctx.send(f"❌ Couldn't fetch the feed: `{exc}`")
+            return await interaction.followup.send(f"❌ Couldn't fetch the feed: `{exc}`")
         if parsed is None or (parsed.bozo and not parsed.entries):
-            return await ctx.send("❌ That URL doesn't look like a valid RSS/Atom feed.")
+            return await interaction.followup.send("❌ That URL doesn't look like a valid RSS/Atom feed.")
 
         name = parsed.feed.get("title") or feed_url
         entries = adapters.adapt_entries(feed_type, parsed)
         feed_id = await db.add_feed(
-            ctx.guild.id, feed_url, name, webhook_url, interval, ctx.author.id,
-            feed_type)
+            interaction.guild_id, feed_url, name, webhook_url, interval,
+            interaction.user.id, feed_type)
         if feed_id is None:
-            return await ctx.send("❌ That feed is already registered in this server.")
+            return await interaction.followup.send("❌ That feed is already registered in this server.")
 
-        # Seed seen entries so adding a feed doesn't flood the channel.
         await db.add_seen(feed_id, [entry_key(e) for e in entries])
         await db.update_poll_meta(feed_id, etag, last_modified, time.time())
 
-        # Push the newest entry through the webhook as immediate feedback;
-        # this also proves the webhook actually accepts messages.
         if entries:
             webhook = discord.Webhook.from_url(webhook_url, session=self.session)
             try:
@@ -376,13 +323,13 @@ class RSS(commands.Cog):
                 )
             except discord.HTTPException:
                 await db.remove_feed(feed_id)
-                return await ctx.send(
+                return await interaction.followup.send(
                     "❌ The webhook rejected a test message, so the feed was not "
                     "added. Check that the webhook still exists.")
 
         log.info("Feed %s added: %r (%s) type=%s interval=%ss in guild %s by user %s",
                  feed_id, name, feed_url, feed_type, interval,
-                 ctx.guild.id, ctx.author.id)
+                 interaction.guild_id, interaction.user.id)
         embed = discord.Embed(title="✅ Feed added", color=RSS_COLOR)
         if parsed.entries:
             embed.description = "The newest item was posted via the webhook as a preview."
@@ -391,34 +338,36 @@ class RSS(commands.Cog):
         embed.add_field(name="Interval", value=f"{interval}s")
         embed.add_field(name="Type", value=feed_type)
         embed.add_field(name="ID", value=str(feed_id))
-        await ctx.send(embed=embed)
+        await interaction.followup.send(embed=embed)
 
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
+    @rss.command(name="remove")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(ref="Feed id or URL")
-    async def remove(self, ctx: commands.Context, *, ref: str):
+    async def remove(self, interaction: discord.Interaction, ref: str):
         """Remove a feed by id or URL."""
-        feed = await db.get_feed(ctx.guild.id, ref)
+        feed = await db.get_feed(interaction.guild_id, ref)
         if feed is None:
-            return await ctx.send("❌ No feed with that id/URL in this server.")
+            return await interaction.response.send_message(
+                "❌ No feed with that id/URL in this server.", ephemeral=True)
         await db.remove_feed(feed["id"])
         log.info("Feed %s removed: %r (%s) in guild %s by user %s",
                  feed["id"], feed["name"], feed["url"],
-                 ctx.guild.id, ctx.author.id)
-        await ctx.send(f"🗑️ Removed **{feed['name']}** (`{feed['url']}`).")        
+                 interaction.guild_id, interaction.user.id)
+        await interaction.response.send_message(
+            f"🗑️ Removed **{feed['name']}** (`{feed['url']}`).")
 
     @rss.command(name="list")
-    async def list_(self, ctx: commands.Context):
+    async def list_(self, interaction: discord.Interaction):
         """List feeds registered in this server."""
-        feeds = await db.list_feeds(ctx.guild.id)
+        feeds = await db.list_feeds(interaction.guild_id)
         if not feeds:
-            return await ctx.send(
-                f"No feeds yet. Add one with `{ctx.clean_prefix}rss add`.")
-        view = FeedListView(feeds, ctx.guild.name)
-        await ctx.send(embed=view.build_embed(), view=view)
+            return await interaction.response.send_message(
+                "No feeds yet. Add one with `/rss add`.", ephemeral=True)
+        view = FeedListView(feeds, interaction.guild.name)
+        await interaction.response.send_message(embed=view.build_embed(), view=view)
 
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
+    @rss.command(name="edit")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         ref="Feed id or URL",
         name="New display name",
@@ -428,38 +377,36 @@ class RSS(commands.Cog):
     )
     @app_commands.choices(feed_type=[
         app_commands.Choice(name=t, value=t) for t in adapters.FEED_TYPES])
-    async def edit(self, ctx: commands.Context, ref: str,
+    async def edit(self, interaction: discord.Interaction, ref: str,
                    name: str | None = None,
                    webhook: str | None = None,
                    interval: int | None = None,
-                   feed_type: Optional[FeedTypeConverter] = None):
+                   feed_type: str | None = None):
         """Edit a feed's name, webhook, interval, or type without re-adding it."""
-        # Slash path: defer ephemerally if a new webhook URL is being set.
-        if ctx.interaction and webhook:
-            await ctx.defer(ephemeral=True)
-        elif not ctx.interaction and webhook:
-            try:
-                await ctx.message.delete()
-            except discord.HTTPException:
-                await ctx.send("⚠️ Couldn't delete your message — it contains a webhook URL.")
+        # Defer ephemerally when a webhook URL is being set to keep it private.
+        if webhook:
+            await interaction.response.defer(ephemeral=True)
+            send = interaction.followup.send
+        else:
+            await interaction.response.defer()
+            send = interaction.followup.send
 
-        feed = await db.get_feed(ctx.guild.id, ref)
+        feed = await db.get_feed(interaction.guild_id, ref)
         if feed is None:
-            return await ctx.send("❌ No feed with that id/URL in this server.")
+            return await send("❌ No feed with that id/URL in this server.")
 
         if webhook and not WEBHOOK_RE.match(webhook):
-            return await ctx.send("❌ That doesn't look like a Discord webhook URL.")
+            return await send("❌ That doesn't look like a Discord webhook URL.")
         if interval is not None:
             interval = max(interval, MIN_INTERVAL)
 
-        # When feed_type changes, re-fetch and send a preview through the new adapter.
         if feed_type is not None and feed_type != feed["feed_type"]:
             try:
                 parsed, etag, last_modified = await self.fetch_feed(feed["url"])
             except Exception as exc:
-                return await ctx.send(f"❌ Couldn't fetch the feed to verify the new type: `{exc}`")
+                return await send(f"❌ Couldn't fetch the feed to verify the new type: `{exc}`")
             if parsed is None or (parsed.bozo and not parsed.entries):
-                return await ctx.send("❌ Feed returned no entries for the new adapter.")
+                return await send("❌ Feed returned no entries for the new adapter.")
             entries = adapters.adapt_entries(feed_type, parsed)
             effective_webhook = webhook or feed["webhook_url"]
             if entries:
@@ -470,7 +417,7 @@ class RSS(commands.Cog):
                         username=(name or feed["name"])[:80],
                     )
                 except discord.HTTPException as exc:
-                    return await ctx.send(
+                    return await send(
                         f"❌ Webhook rejected the preview: `{exc}` — type not changed.")
             await db.update_poll_meta(feed["id"], etag, last_modified, time.time())
 
@@ -481,7 +428,8 @@ class RSS(commands.Cog):
             feed_type=feed_type,
             interval_seconds=interval,
         )
-        log.info("Feed %s edited in guild %s by user %s", feed["id"], ctx.guild.id, ctx.author.id)
+        log.info("Feed %s edited in guild %s by user %s",
+                 feed["id"], interaction.guild_id, interaction.user.id)
 
         embed = discord.Embed(title="✅ Feed updated", color=RSS_COLOR)
         embed.add_field(name="Name", value=name or feed["name"], inline=False)
@@ -491,13 +439,13 @@ class RSS(commands.Cog):
             embed.add_field(name="Type", value=feed_type)
         if webhook:
             embed.add_field(name="Webhook", value="Updated")
-        await ctx.send(embed=embed)
+        await send(embed=embed)
 
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
-    async def status(self, ctx: commands.Context):
+    @rss.command(name="status")
+    @app_commands.default_permissions(manage_guild=True)
+    async def status(self, interaction: discord.Interaction):
         """Show feeds with consecutive polling failures."""
-        feeds = await db.unhealthy_feeds(ctx.guild.id)
+        feeds = await db.unhealthy_feeds(interaction.guild_id)
 
         if not feeds:
             embed = discord.Embed(
@@ -505,12 +453,10 @@ class RSS(commands.Cog):
                 description="No feeds with consecutive failures.",
                 color=RSS_COLOR,
             )
-            if ctx.interaction:
-                return await ctx.send(embed=embed, ephemeral=True)
-            return await ctx.send(embed=embed)
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
 
         embed = discord.Embed(
-            title=f"⚠️ Unhealthy feeds in {ctx.guild.name}",
+            title=f"⚠️ Unhealthy feeds in {interaction.guild.name}",
             color=ERROR_COLOR,
         )
         for f in feeds[:25]:
@@ -523,82 +469,77 @@ class RSS(commands.Cog):
                       f"Next retry in ~{backoff_s // 60}m",
                 inline=False,
             )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
-        if ctx.interaction:
-            return await ctx.send(embed=embed, ephemeral=True)
-
-        # Prefix path: delete the invoking message then DM the result.
-        try:
-            await ctx.message.delete()
-        except discord.HTTPException:
-            pass
-        try:
-            await ctx.author.send(embed=embed)
-        except discord.HTTPException:
-            await ctx.send(
-                "⚠️ Couldn't DM you the status report. "
-                "Use the `/rss status` slash command for an ephemeral reply."
-            )
-
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
+    @rss.command(name="interval")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(ref="Feed id or URL",
                            seconds=f"New polling interval in seconds (min {MIN_INTERVAL})")
-    async def interval(self, ctx: commands.Context, ref: str, seconds: int):
+    async def interval(self, interaction: discord.Interaction, ref: str, seconds: int):
         """Change a feed's polling interval."""
-        feed = await db.get_feed(ctx.guild.id, ref)
+        feed = await db.get_feed(interaction.guild_id, ref)
         if feed is None:
-            return await ctx.send("❌ No feed with that id/URL in this server.")
+            return await interaction.response.send_message(
+                "❌ No feed with that id/URL in this server.", ephemeral=True)
         seconds = max(seconds, MIN_INTERVAL)
         await db.set_interval(feed["id"], seconds)
-        await ctx.send(f"⏱️ **{feed['name']}** now polls every {seconds}s.")
+        await interaction.response.send_message(
+            f"⏱️ **{feed['name']}** now polls every {seconds}s.")
 
-    @rss.command()
-    @commands.has_guild_permissions(manage_guild=True)
+    @rss.command(name="poll")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(ref="Feed id or URL")
-    async def poll(self, ctx: commands.Context, *, ref: str):
+    async def poll(self, interaction: discord.Interaction, ref: str):
         """Force-fetch a feed and push its latest entry to the webhook immediately."""
-        feed = await db.get_feed(ctx.guild.id, ref)
+        feed = await db.get_feed(interaction.guild_id, ref)
         if feed is None:
-            return await ctx.send("❌ No feed with that id/URL in this server.")
+            return await interaction.response.send_message(
+                "❌ No feed with that id/URL in this server.", ephemeral=True)
+
+        await interaction.response.defer()
 
         try:
-            # Unconditional fetch — skip etag/last_modified so we always get entries back.
             parsed, etag, last_modified = await self.fetch_feed(feed["url"])
         except Exception as exc:
-            return await ctx.send(f"❌ Couldn't fetch the feed: `{exc}`")
+            return await interaction.followup.send(f"❌ Couldn't fetch the feed: `{exc}`")
         if parsed is None or not parsed.entries:
-            return await ctx.send(f"⚠️ **{feed['name']}** returned no entries.")
+            return await interaction.followup.send(f"⚠️ **{feed['name']}** returned no entries.")
 
         await db.update_poll_meta(feed["id"], etag, last_modified, time.time())
 
         entries = adapters.adapt_entries(feed["feed_type"], parsed)
         if not entries:
-            return await ctx.send(f"⚠️ **{feed['name']}** returned no entries.")
+            return await interaction.followup.send(f"⚠️ **{feed['name']}** returned no entries.")
 
         webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
         try:
-            log.info("Webhook send: forced poll preview for feed %s (%s)", feed["id"], feed["name"])
+            log.info("Webhook send: forced poll preview for feed %s (%s)",
+                     feed["id"], feed["name"])
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entries[0]),
                 username=feed["name"][:80],
             )
         except discord.HTTPException as exc:
-            return await ctx.send(f"❌ Webhook rejected the message: `{exc}`")
+            return await interaction.followup.send(f"❌ Webhook rejected the message: `{exc}`")
 
-        await ctx.send(f"🔄 **{feed['name']}** — latest entry pushed to webhook.")
+        await interaction.followup.send(f"🔄 **{feed['name']}** — latest entry pushed to webhook.")
 
     # ------------------------------------------------------------------ errors
 
-    async def cog_command_error(self, ctx: commands.Context, error):
-        if isinstance(error, commands.MissingPermissions):
-            await ctx.send("❌ You need the **Manage Server** permission for that.")
-        elif isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
-            await ctx.send(f"❌ {error} — see `{ctx.clean_prefix}rss` for usage.")
-        elif isinstance(error, commands.NoPrivateMessage):
-            await ctx.send("❌ RSS commands only work in a server.")
+    async def cog_app_command_error(self, interaction: discord.Interaction,
+                                    error: app_commands.AppCommandError):
+        msg = None
+        if isinstance(error, app_commands.MissingPermissions):
+            msg = "❌ You need the **Manage Server** permission for that."
+        elif isinstance(error, app_commands.NoPrivateMessage):
+            msg = "❌ RSS commands only work in a server."
         else:
             raise error
+        if msg:
+            if interaction.response.is_done():
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.response.send_message(msg, ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

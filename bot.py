@@ -12,7 +12,6 @@ import db
 load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
-PREFIX = os.getenv('BOT_PREFIX', '!')
 DATA_DIR = os.getenv('DATA_DIR', 'data')
 LOG_DIR = os.path.join('storage', 'logs')
 
@@ -33,7 +32,6 @@ logging.basicConfig(
 )
 
 intents = discord.Intents.default()
-intents.message_content = True
 
 
 class RSSBot(commands.Bot):
@@ -51,7 +49,7 @@ class RSSBot(commands.Bot):
         await db.close()
 
 
-bot = RSSBot(command_prefix=PREFIX, intents=intents)
+bot = RSSBot(command_prefix=commands.when_mentioned, intents=intents)
 
 
 @bot.event
@@ -60,16 +58,16 @@ async def on_ready():
     print('------')
 
 
-@bot.hybrid_command(name='ping')
-async def ping(ctx: commands.Context):
+@bot.tree.command(name='ping')
+async def ping(interaction: discord.Interaction):
     """Responds with pong and the gateway latency"""
-    await ctx.send(f'Pong! `{bot.latency * 1000:.0f}ms`')
+    await interaction.response.send_message(f'Pong! `{bot.latency * 1000:.0f}ms`')
 
 
-@bot.hybrid_command(name='hello')
-async def hello(ctx: commands.Context):
+@bot.tree.command(name='hello')
+async def hello(interaction: discord.Interaction):
     """Greets the user"""
-    await ctx.send(f'Hello {ctx.author.name}!')
+    await interaction.response.send_message(f'Hello {interaction.user.name}!')
 
 
 if __name__ == '__main__':
