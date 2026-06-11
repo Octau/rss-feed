@@ -5,7 +5,8 @@ via webhooks.
 
 ## Features
 
-- Add/remove feeds per server with bot commands
+- Add/remove feeds per server with slash commands or prefix commands
+- Feed adapters for vendor-specific shapes (F5/NGINX support, Royal Road); generic feedparser fallback for everything else
 - Background poller with per-feed intervals, conditional HTTP requests
   (ETag / Last-Modified), and built-in rate limiting
 - Only announces items it hasn't seen before (state kept in SQLite)
@@ -14,18 +15,35 @@ via webhooks.
 
 ## Commands
 
+All `rss` subcommands work as slash commands (`/rss add …`) and prefix commands (`!rss add …`).  
+`add`, `remove`, `interval`, and `poll` require the **Manage Server** permission.
+
 | Command | Description |
 | --- | --- |
 | `!ping` | Liveness check, replies with gateway latency |
-| `!rss add <feed_url> <webhook_url> [interval_s]` | Register a feed (default 300s) |
-| `!rss remove <id\|url>` | Stop polling a feed |
-| `!rss list` | List this server's feeds |
-| `!rss interval <id\|url> <seconds>` | Change polling interval (min 120s) |
-| `!rss poll <id\|url>` | Force a poll on the next cycle |
+| `!hello` | Greets the invoking user |
+| `rss add <feed_url> <webhook_url> [interval_s] [type]` | Register a feed (default interval 4 h, default type `generic`) |
+| `rss remove <id\|url>` | Stop polling a feed |
+| `rss list` | List this server's feeds |
+| `rss interval <id\|url> <seconds>` | Change polling interval (min 120 s) |
+| `rss poll <id\|url>` | Force a poll on the next cycle |
 
-`add`, `remove`, `interval`, and `poll` require the **Manage Server** permission.
-The bot deletes the `!rss add` message because it contains the webhook URL —
+When using `/rss add` the response is ephemeral so the webhook URL stays private.
+With the prefix form (`!rss add`) the bot deletes your message for the same reason —
 prefer running it in an admin-only channel.
+
+On a successful add the newest entry is posted as a preview embed so you can
+confirm the webhook is wired up correctly.
+
+### Feed types
+
+The `type` option on `rss add` selects a parser adapter:
+
+| Type | Description |
+| --- | --- |
+| `generic` | Raw feedparser (works for most RSS/Atom feeds) |
+| `f5` | F5 / NGINX Support feed shape |
+| `royalroad` | Royal Road fiction feeds |
 
 ## Setup
 
@@ -62,7 +80,11 @@ history survives restarts and redeploys.
 
 A scheduler wakes every 60 seconds and polls feeds whose interval has elapsed.
 Requests are conditional (304 responses are skipped cheaply), fetches are spaced
-1s apart, at most 5 new items are announced per feed per cycle, and webhook
-sends are spaced 1s apart to stay well inside Discord's rate limits. Newly
+1 s apart, at most 5 new items are announced per feed per cycle, and webhook
+sends are spaced 1 s apart to stay well inside Discord's rate limits. Newly
 added feeds have their current entries marked as seen so a channel is never
 flooded on registration.
+
+## Logs
+
+Logs go to stdout and `storage/logs/bot.log` (rotated every 3 days, 14 backups kept).
