@@ -129,3 +129,20 @@ boundaries. Footer shows `Page N of M`. Views are persistent (no 15-minute expir
 ## 7. Open Questions
 
 All resolved — none outstanding.
+
+---
+
+## v1.2 — Icon URL Normalization (signed off 2026-06-11)
+
+### Problem
+`extract_icon_url()` stored raw `favicon.ico` paths and feed image URLs that frequently 404 in Discord embeds. Discord renders a broken image placeholder when the URL fails.
+
+### Solution
+Route all icon URLs through **Google S2 Favicon Service** (`https://www.google.com/s2/favicons?domain=<host>&sz=64`). The domain is extracted from the feed `<image>` href (if present) or the feed's `<link>` site URL. Result is always a valid image — Google falls back to a default globe icon for unknown domains.
+
+### Scope
+- `_google_favicon(site_url)` helper added to `cogs/rss.py`
+- `extract_icon_url()` updated to call it for both code paths
+- Applies on `rss add` and `rss edit` (both already call `extract_icon_url`)
+- No new dependencies (stdlib `urllib.parse` only)
+- No DB migration — existing rows unaffected until next edit/re-add
