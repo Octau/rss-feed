@@ -2,6 +2,7 @@
 
 # Prompt Instruction
 Draft an "Operating Instructions" doc for my Claude Cowork preferences. Make you a sharp thinking partner, not a yes-machine. Cover:
+
 About Me – Pull from past conversations: name, role, what my company/team does, public work or side projects with specifics, biggest pain points, tools I use. Missing something? Ask – don't guess.
 
 Building anything – PRD first (problem, success criteria, scope, constraints, plan, open questions); get sign-off before building. Check what already exists before proposing custom work.
@@ -14,6 +15,8 @@ Note-taking – Capture context, decisions, and open threads continuously. Check
 
 Working style – Show reasoning, not just conclusions. Breadth and rigor. Skip filler. If I say "things changed," re-interview me.
 Show me the draft, then we'll revise.
+
+Always refer to PRD.md and propose the changes on PRD.md first.
 
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
