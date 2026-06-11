@@ -85,6 +85,119 @@ sends are spaced 1 s apart to stay well inside Discord's rate limits. Newly
 added feeds have their current entries marked as seen so a channel is never
 flooded on registration.
 
+## Writing a feed adapter
+
+If a feed source has a non-standard shape (extra channel fields, unusual guid
+format, HTML-heavy descriptions, etc.) you can add a typed adapter so the bot
+handles it cleanly.
+
+### 1. Create the module
+
+Add a file at `adapters/<name>.py`. The only thing the registry needs is a
+module-level `ADAPTER` name pointing to your adapter class:
+
+```python
+# adapters/mysite.py
+
+ADAPTER = MySiteFeed
+```
+
+The registry in `adapters/__init__.py` scans the package at import time, so
+no other file needs to change. The new type immediately appears as a choice in
+`/rss add`.
+
+### 2. Implement the adapter class
+
+Your class must provide:
+
+| Member | Description |
+| --- | --- |
+| `feed_type: ClassVar[str]` | The identifier users pass as the `type` option (e.g. `"mysite"`). Must be unique across adapters. |
+| `from_parsed(cls, parsed) -> Self` | Classmethod that receives a feedparser result and returns an instance of your class. |
+| `entries(self) -> list[dict]` | Returns a list of entry dicts (see shape below). |
+
+Optionally add `from_dict(cls, data: dict)` if you want to construct from a
+raw `{channel: {items: [...]}}` dict (useful for tests).
+
+### 3. Entry dict shape
+
+Each dict returned by `entries()` must carry these keys so `entry_key()` and
+`build_embed()` in `cogs/rss.py` keep working:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `id` | `str` | Stable, unique identifier. Changing it re-announces history — don't. |
+| `link` | `str` | URL of the item. |
+| `title` | `str` | Item title. |
+| `published` | `str` | Publication date string (e.g. RFC 822). |
+| `published_parsed` | `time.struct_time \| None` | UTC struct_time for embed timestamp; `None` is safe. |
+| `summary` | `str` | Body text or HTML — `clean_summary()` strips tags at embed time. |
+
+`entry_key()` tries `id`, then `link`, then `sha256(title + published)` as
+fallback. Any of those being stable and unique is sufficient.
+
+### Example skeleton
+
+```python
+import time
+from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
+from typing import ClassVar
+
+
+def _parse_date(value: str) -> time.struct_time | None:
+    try:
+        return parsedate_to_datetime(value).utctimetuple()
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass
+class MySiteItem:
+    title: str
+    link: str
+    guid: str
+    pub_date: str
+    summary: str
+
+    def as_entry(self) -> dict:
+        return {
+            "id": self.guid,
+            "link": self.link,
+            "title": self.title,
+            "published": self.pub_date,
+            "published_parsed": _parse_date(self.pub_date),
+            "summary": self.summary,
+        }
+
+
+@dataclass
+class MySiteFeed:
+    feed_type: ClassVar[str] = "mysite"
+    items: list[MySiteItem] = field(default_factory=list)
+
+    def entries(self) -> list[dict]:
+        return [item.as_entry() for item in self.items]
+
+    @classmethod
+    def from_parsed(cls, parsed) -> "MySiteFeed":
+        return cls(items=[
+            MySiteItem(
+                title=e.get("title", ""),
+                link=e.get("link", ""),
+                guid=e.get("id") or e.get("link", ""),
+                pub_date=e.get("published", ""),
+                summary=e.get("summary", ""),
+            )
+            for e in parsed.entries
+        ])
+
+
+ADAPTER = MySiteFeed
+```
+
+See `adapters/f5.py` and `adapters/royalroad.py` for real examples.
+
 ## Logs
 
 Logs go to stdout and `storage/logs/bot.log` (rotated every 3 days, 14 backups kept).
