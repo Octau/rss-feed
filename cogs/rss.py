@@ -12,6 +12,7 @@ import discord
 import feedparser
 from discord import app_commands
 from discord.ext import commands, tasks
+from urllib.parse import urlparse
 
 import adapters
 import db
@@ -31,6 +32,21 @@ TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = 3600          # cap backoff at 1 hour
 PAGE_SIZE = 10              # feeds per page in rss list
+
+
+def extract_icon_url(parsed) -> str | None:
+    """Best-effort site icon from a parsed feed: feed image first, then favicon.ico."""
+    img = parsed.feed.get("image") or {}
+    href = (img.get("href") or img.get("url")) if isinstance(img, dict) else (
+        getattr(img, "href", None) or getattr(img, "url", None))
+    if href:
+        return href
+    site = parsed.feed.get("link")
+    if site:
+        p = urlparse(site)
+        if p.scheme and p.netloc:
+            return f"{p.scheme}://{p.netloc}/favicon.ico"
+    return None
 
 
 def entry_key(entry) -> str:
@@ -227,9 +243,10 @@ class RSS(commands.Cog):
         if parsed is None:  # 304 Not Modified
             recovered = await db.record_poll_success(feed["id"])
             if recovered:
-                await self._send_recovery_notice(feed)
+                await self._send_recovery_notice(feed, icon_url=None)
             return
 
+        icon_url = extract_icon_url(parsed)
         seen = await db.seen_keys(feed["id"])
         entries = adapters.adapt_entries(feed["feed_type"], parsed)
         new_entries = [e for e in entries if entry_key(e) not in seen]
@@ -237,7 +254,7 @@ class RSS(commands.Cog):
         # Record success before announcing so a webhook failure doesn't re-trigger backoff.
         recovered = await db.record_poll_success(feed["id"])
         if recovered:
-            await self._send_recovery_notice(feed)
+            await self._send_recovery_notice(feed, icon_url=icon_url)
 
         if not new_entries:
             return
@@ -254,12 +271,13 @@ class RSS(commands.Cog):
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entry),
                 username=feed["name"][:80],
+                avatar_url=icon_url,
             )
             await asyncio.sleep(SEND_SPACING)
         log.info("Feed %s (%s): announced %d new item(s)",
                  feed["id"], feed["name"], len(to_send))
 
-    async def _send_recovery_notice(self, feed) -> None:
+    async def _send_recovery_notice(self, feed, *, icon_url: str | None) -> None:
         embed = discord.Embed(
             title="✅ Feed recovered",
             description=f"**{feed['name']}** is polling successfully again.",
@@ -267,7 +285,7 @@ class RSS(commands.Cog):
         )
         try:
             webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
-            await webhook.send(embed=embed, username=feed["name"][:80])
+            await webhook.send(embed=embed, username=feed["name"][:80], avatar_url=icon_url)
         except Exception:
             log.warning("Could not send recovery notice for feed %s", feed["id"])
 
@@ -320,6 +338,7 @@ class RSS(commands.Cog):
                 await webhook.send(
                     embed=build_embed(name, feed_url, entries[0]),
                     username=name[:80],
+                    avatar_url=extract_icon_url(parsed),
                 )
             except discord.HTTPException:
                 await db.remove_feed(feed_id)
@@ -415,6 +434,7 @@ class RSS(commands.Cog):
                     await wh.send(
                         embed=build_embed(feed["name"], feed["url"], entries[0]),
                         username=(name or feed["name"])[:80],
+                        avatar_url=extract_icon_url(parsed),
                     )
                 except discord.HTTPException as exc:
                     return await send(
@@ -518,6 +538,7 @@ class RSS(commands.Cog):
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entries[0]),
                 username=feed["name"][:80],
+                avatar_url=extract_icon_url(parsed),
             )
         except discord.HTTPException as exc:
             return await interaction.followup.send(f"❌ Webhook rejected the message: `{exc}`")
