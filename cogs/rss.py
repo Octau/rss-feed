@@ -34,18 +34,28 @@ MAX_BACKOFF = 3600          # cap backoff at 1 hour
 PAGE_SIZE = 10              # feeds per page in rss list
 
 
+def _google_favicon(site_url: str) -> str | None:
+    """Return a Google S2 favicon URL for the domain of site_url, or None if unparseable."""
+    p = urlparse(site_url)
+    if p.netloc:
+        return f"https://www.google.com/s2/favicons?domain={p.netloc}&sz=64"
+    return None
+
+
 def extract_icon_url(parsed) -> str | None:
-    """Best-effort site icon from a parsed feed: feed image first, then favicon.ico."""
+    """Best-effort site icon via Google S2 favicon service: feed image domain first, then feed link."""
     img = parsed.feed.get("image") or {}
     href = (img.get("href") or img.get("url")) if isinstance(img, dict) else (
         getattr(img, "href", None) or getattr(img, "url", None))
     if href:
-        return href
+        favicon = _google_favicon(href)
+        if favicon:
+            return favicon
     site = parsed.feed.get("link")
     if site:
-        p = urlparse(site)
-        if p.scheme and p.netloc:
-            return f"{p.scheme}://{p.netloc}/favicon.ico"
+        favicon = _google_favicon(site)
+        if favicon:
+            return favicon
     return None
 
 
