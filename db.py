@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     etag TEXT,
     last_modified TEXT,
     last_polled REAL NOT NULL DEFAULT 0,
+    fail_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
     UNIQUE (guild_id, url)
 );
 
@@ -40,6 +42,12 @@ async def init(path: str) -> None:
     if "feed_type" not in columns:
         await _conn.execute(
             "ALTER TABLE feeds ADD COLUMN feed_type TEXT NOT NULL DEFAULT 'generic'")
+    if "fail_count" not in columns:
+        await _conn.execute(
+            "ALTER TABLE feeds ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0")
+    if "last_error" not in columns:
+        await _conn.execute(
+            "ALTER TABLE feeds ADD COLUMN last_error TEXT")
     await _conn.commit()
 
 
@@ -98,6 +106,65 @@ async def set_interval(feed_id: int, seconds: int) -> None:
     await _conn.execute(
         "UPDATE feeds SET interval_seconds = ? WHERE id = ?", (seconds, feed_id))
     await _conn.commit()
+
+
+async def update_feed(feed_id: int, *,
+                      name: str | None = None,
+                      webhook_url: str | None = None,
+                      feed_type: str | None = None,
+                      interval_seconds: int | None = None) -> None:
+    """Edit one or more mutable fields on a feed."""
+    fields: dict[str, object] = {}
+    if name is not None:
+        fields["name"] = name
+    if webhook_url is not None:
+        fields["webhook_url"] = webhook_url
+    if feed_type is not None:
+        fields["feed_type"] = feed_type
+    if interval_seconds is not None:
+        fields["interval_seconds"] = interval_seconds
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    await _conn.execute(
+        f"UPDATE feeds SET {set_clause} WHERE id = ?",
+        (*fields.values(), feed_id),
+    )
+    await _conn.commit()
+
+
+async def record_poll_failure(feed_id: int, error: str) -> int:
+    """Increment fail_count, store last_error. Returns the new fail_count."""
+    await _conn.execute(
+        "UPDATE feeds SET fail_count = fail_count + 1, last_error = ? WHERE id = ?",
+        (error[:500], feed_id),
+    )
+    await _conn.commit()
+    cur = await _conn.execute(
+        "SELECT fail_count FROM feeds WHERE id = ?", (feed_id,))
+    row = await cur.fetchone()
+    return row["fail_count"] if row else 0
+
+
+async def record_poll_success(feed_id: int) -> bool:
+    """Reset fail_count and last_error. Returns True if the feed had failures before."""
+    cur = await _conn.execute(
+        "SELECT fail_count FROM feeds WHERE id = ?", (feed_id,))
+    row = await cur.fetchone()
+    had_failures = row and row["fail_count"] > 0
+    await _conn.execute(
+        "UPDATE feeds SET fail_count = 0, last_error = NULL WHERE id = ?", (feed_id,))
+    await _conn.commit()
+    return bool(had_failures)
+
+
+async def unhealthy_feeds(guild_id: int) -> list[aiosqlite.Row]:
+    """Feeds in a guild that have at least one consecutive failure."""
+    cur = await _conn.execute(
+        "SELECT * FROM feeds WHERE guild_id = ? AND fail_count > 0 ORDER BY fail_count DESC",
+        (guild_id,),
+    )
+    return await cur.fetchall()
 
 
 async def mark_due(feed_id: int) -> None:
