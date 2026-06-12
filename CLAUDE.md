@@ -31,6 +31,12 @@ All Python code in this project must comply with **PEP 8** with a maximum line l
 - Auto-fix with: `python -m autopep8 --in-place --max-line-length 99 <file>`
 - All new code and edits must be PEP 8-clean before committing.
 
+A pre-commit git hook in `.githooks/pre-commit` auto-fixes then checks every staged `.py` file on each commit. Activate it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Project Overview
 
 This is a Discord bot that manages RSS feed subscriptions for Discord servers. Users can add RSS/Atom feeds via Discord webhooks, and the bot polls them on configurable intervals to announce new entries in Discord channels.
