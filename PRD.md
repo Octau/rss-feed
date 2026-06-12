@@ -149,46 +149,73 @@ Route all icon URLs through **Google S2 Favicon Service** (`https://www.google.c
 
 ---
 
-## v1.3 — Configurable Log Rotation (signed off 2026-06-12)
+## v1.3 — Logging Reimplementation (signed off 2026-06-12)
 
 ### Problem
 
-Log rotation is hardcoded in `bot.py` (every 3 days, 14 backups). Operators running the bot in Docker or on VPS hosts have no way to tune retention without editing source code. Log filenames also don't embed the date, making it hard to grep or archive by day.
+The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, root logger only. Operators can't tune retention without editing source. Log filenames don't embed the date. There is no consistent record of which commands were invoked, when webhooks were pushed, or when the poller ran — debugging a missed announcement means scrubbing discord.py internals rather than reading a clear event log.
 
 ### Success Criteria
 
 | Metric | Target |
 |---|---|
-| Daily rotation | Each log file named `bot-YYYY-MM-DD.log` |
-| Configurable retention | `LOG_BACKUP_COUNT` env var, default `7` |
+| Daily rotation, date in filename | Each log file named `bot-YYYY-MM-DD.log` |
+| Configurable retention | `LOG_BACKUP_COUNT` env var, default `7`, keeps latest 7 days |
 | Configurable level | `LOG_LEVEL` env var, default `INFO` |
-| `.env.example` updated | All new vars documented with defaults |
+| Configurable directory | `LOG_DIR` env var, default `storage/logs` |
+| Command events logged | Every hybrid command invocation (user, guild, command name) emits an INFO line |
+| Webhook push events logged | Every Discord webhook send emits an INFO line (feed id, entry title, URL masked) |
+| Poll cycle events logged | Every poller cycle and per-feed outcome emits a log line |
+| Old handler fully removed | Existing hardcoded `TimedRotatingFileHandler` replaced entirely |
+| `.env.example` updated | All LOG_* vars documented with defaults |
 | No code changes needed for defaults | Existing deployments work unchanged after update |
 
 ### Scope
 
 **In scope (v1.3)**
-- Rotate daily; suffix format produces `bot-YYYY-MM-DD.log` (`when='midnight'`, `interval=1`, `suffix='%Y-%m-%d'`)
-- `LOG_BACKUP_COUNT` env var (int, default `7`) — number of rotated files to keep
-- `LOG_LEVEL` env var (string, default `INFO`) — passed to `logging.basicConfig`
-- `LOG_DIR` env var (string, default `storage/logs`) — allows remapping the log directory for Docker volume mounts
-- `.env.example` updated with all three vars and comments
+- Remove current logging handler; reimplement using the reference pattern:
+  ```python
+  handler = TimedRotatingFileHandler(
+      f'{LOG_DIR}/bot.log',
+      when='midnight', interval=1,
+      backupCount=LOG_BACKUP_COUNT
+  )
+  handler.suffix = '%Y-%m-%d'
+  handler.setFormatter(logging.Formatter('%(asctime)s %(name)s %(levelname)s %(message)s'))
+  ```
+- `LOG_DIR` env var (string, default `storage/logs`)
+- `LOG_BACKUP_COUNT` env var (int, default `7`) — keeps latest 7 rotated files
+- `LOG_LEVEL` env var (string, default `INFO`)
+- Named module loggers (`logging.getLogger(__name__)`) in `bot.py` and `cogs/rss.py`
+- `bot.before_invoke` hook logs every command: `[command] user=<id> guild=<id> cmd=<name>`
+  (args excluded to avoid leaking webhook URLs)
+- `[webhook]` INFO line on every Discord webhook send — feed id, entry title, URL masked
+  (token replaced with `***`, only snowflake ID visible)
+- `[poller]` INFO line per feed outcome: `feed_id=<n> status=ok|skipped|error entries_new=<n>`
+- `[poller]` DEBUG line at cycle start/end with `feeds_due` count and elapsed time
+- `.env.example` updated with all three LOG_* vars and inline comments
 
 **Out of scope (v1.3)**
-- Structured (JSON) logging — already deferred
+- Structured (JSON) logging — already deferred from v1.1
 - Log shipping / remote sinks
 - Per-logger level overrides
 - Size-based rotation
+- Logging command args (risk of leaking URLs)
 
 ### Constraints
 
 - No new dependencies (stdlib `logging.handlers` only)
-- Backwards-compatible: if none of the new env vars are set, behaviour uses safe defaults (daily rotation, 7 backups, INFO level)
-- `LOG_DIR` creation (`os.makedirs`) already present — no change needed there
+- Webhook URLs in log lines must be masked — token replaced with `***`
+- Backwards-compatible defaults: if no env vars set, daily rotation, 7 backups, INFO level
+- Poll cycle-level lines at `DEBUG`; per-feed outcomes at `INFO` (success/skip) or `WARNING`/`ERROR` (failures)
 
 ### Implementation Plan
 
-1. Add `LOG_BACKUP_COUNT`, `LOG_LEVEL`, `LOG_DIR` reads from env in `bot.py`
-2. Update `TimedRotatingFileHandler`: `when='midnight'`, `interval=1`, `backupCount=LOG_BACKUP_COUNT`, `suffix='%Y-%m-%d'`
-3. Pass `LOG_LEVEL` to `logging.basicConfig(level=...)`
-4. Append the three new variables to `.env.example` with inline comments
+1. Read `LOG_DIR`, `LOG_BACKUP_COUNT`, `LOG_LEVEL` from env in `bot.py`
+2. Replace existing handler with `TimedRotatingFileHandler(when='midnight', interval=1, suffix='%Y-%m-%d', backupCount=LOG_BACKUP_COUNT)`
+3. Pass `LOG_LEVEL` to `basicConfig(level=...)`
+4. Register `bot.before_invoke` hook in `bot.py` to emit `[command]` INFO lines
+5. Add `logger = logging.getLogger(__name__)` to `cogs/rss.py`; replace root logger calls
+6. Add `[webhook]` log line in every webhook send path; mask token in URL
+7. Add `[poller]` log lines at cycle start/end (DEBUG) and per-feed outcome (INFO/WARNING/ERROR)
+8. Update `.env.example` with all three LOG_* vars
