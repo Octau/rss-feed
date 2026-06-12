@@ -146,3 +146,49 @@ Route all icon URLs through **Google S2 Favicon Service** (`https://www.google.c
 - Applies on `rss add` and `rss edit` (both already call `extract_icon_url`)
 - No new dependencies (stdlib `urllib.parse` only)
 - No DB migration — existing rows unaffected until next edit/re-add
+
+---
+
+## v1.3 — Configurable Log Rotation (signed off 2026-06-12)
+
+### Problem
+
+Log rotation is hardcoded in `bot.py` (every 3 days, 14 backups). Operators running the bot in Docker or on VPS hosts have no way to tune retention without editing source code. Log filenames also don't embed the date, making it hard to grep or archive by day.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Daily rotation | Each log file named `bot-YYYY-MM-DD.log` |
+| Configurable retention | `LOG_BACKUP_COUNT` env var, default `7` |
+| Configurable level | `LOG_LEVEL` env var, default `INFO` |
+| `.env.example` updated | All new vars documented with defaults |
+| No code changes needed for defaults | Existing deployments work unchanged after update |
+
+### Scope
+
+**In scope (v1.3)**
+- Rotate daily; suffix format produces `bot-YYYY-MM-DD.log` (`when='midnight'`, `interval=1`, `suffix='%Y-%m-%d'`)
+- `LOG_BACKUP_COUNT` env var (int, default `7`) — number of rotated files to keep
+- `LOG_LEVEL` env var (string, default `INFO`) — passed to `logging.basicConfig`
+- `LOG_DIR` env var (string, default `storage/logs`) — allows remapping the log directory for Docker volume mounts
+- `.env.example` updated with all three vars and comments
+
+**Out of scope (v1.3)**
+- Structured (JSON) logging — already deferred
+- Log shipping / remote sinks
+- Per-logger level overrides
+- Size-based rotation
+
+### Constraints
+
+- No new dependencies (stdlib `logging.handlers` only)
+- Backwards-compatible: if none of the new env vars are set, behaviour uses safe defaults (daily rotation, 7 backups, INFO level)
+- `LOG_DIR` creation (`os.makedirs`) already present — no change needed there
+
+### Implementation Plan
+
+1. Add `LOG_BACKUP_COUNT`, `LOG_LEVEL`, `LOG_DIR` reads from env in `bot.py`
+2. Update `TimedRotatingFileHandler`: `when='midnight'`, `interval=1`, `backupCount=LOG_BACKUP_COUNT`, `suffix='%Y-%m-%d'`
+3. Pass `LOG_LEVEL` to `logging.basicConfig(level=...)`
+4. Append the three new variables to `.env.example` with inline comments
