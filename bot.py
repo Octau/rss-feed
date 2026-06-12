@@ -18,20 +18,25 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
+
+_formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)s: %(message)s')
+
+_file_handler = logging.handlers.TimedRotatingFileHandler(
+    os.path.join(LOG_DIR, 'bot.log'),
+    when='midnight',
+    interval=1,
+    backupCount=LOG_BACKUP_COUNT,
+    encoding='utf-8',
+    suffix='%Y-%m-%d',
+)
+_file_handler.setFormatter(_formatter)
+
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_formatter)
+
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.handlers.TimedRotatingFileHandler(
-            os.path.join(LOG_DIR, 'bot.log'),
-            when='midnight',
-            interval=1,
-            backupCount=LOG_BACKUP_COUNT,
-            encoding='utf-8',
-            suffix='%Y-%m-%d',
-        ),
-    ],
+    handlers=[_file_handler, _stream_handler],
 )
 
 logger = logging.getLogger('bot')
