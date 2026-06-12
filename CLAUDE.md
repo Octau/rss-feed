@@ -23,6 +23,14 @@ Always refer to PRD.md and propose the changes on PRD.md first.
 Always update CLAUDE.md and README.md to reflect a version changes.
 
 
+## Coding Standards
+
+All Python code in this project must comply with **PEP 8** with a maximum line length of **99 characters** (configured in `setup.cfg`).
+
+- Lint with: `python -m pycodestyle <file>`
+- Auto-fix with: `python -m autopep8 --in-place --max-line-length 99 <file>`
+- All new code and edits must be PEP 8-clean before committing.
+
 ## Project Overview
 
 This is a Discord bot that manages RSS feed subscriptions for Discord servers. Users can add RSS/Atom feeds via Discord webhooks, and the bot polls them on configurable intervals to announce new entries in Discord channels.

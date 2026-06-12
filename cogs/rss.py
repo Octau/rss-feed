@@ -43,7 +43,10 @@ def _google_favicon(site_url: str) -> str | None:
 
 
 def extract_icon_url(parsed) -> str | None:
-    """Best-effort site icon via Google S2 favicon service: feed image domain first, then feed link."""
+    """Best-effort site icon via Google S2 favicon service.
+
+    Tries feed image domain first, then feed link.
+    """
     img = parsed.feed.get("image") or {}
     href = (img.get("href") or img.get("url")) if isinstance(img, dict) else (
         getattr(img, "href", None) or getattr(img, "url", None))
@@ -323,7 +326,9 @@ class RSS(commands.Cog):
         await interaction.response.defer(ephemeral=True)
 
         if not WEBHOOK_RE.match(webhook_url):
-            return await interaction.followup.send("❌ That doesn't look like a Discord webhook URL.")
+            return await interaction.followup.send(
+                "❌ That doesn't look like a Discord webhook URL."
+            )
         interval = max(interval, MIN_INTERVAL)
 
         try:
@@ -331,7 +336,9 @@ class RSS(commands.Cog):
         except Exception as exc:
             return await interaction.followup.send(f"❌ Couldn't fetch the feed: `{exc}`")
         if parsed is None or (parsed.bozo and not parsed.entries):
-            return await interaction.followup.send("❌ That URL doesn't look like a valid RSS/Atom feed.")
+            return await interaction.followup.send(
+                "❌ That URL doesn't look like a valid RSS/Atom feed."
+            )
 
         name = parsed.feed.get("title") or feed_url
         icon_url = extract_icon_url(parsed)
@@ -340,7 +347,9 @@ class RSS(commands.Cog):
             interaction.guild_id, feed_url, name, webhook_url, interval,
             interaction.user.id, feed_type, icon_url)
         if feed_id is None:
-            return await interaction.followup.send("❌ That feed is already registered in this server.")
+            return await interaction.followup.send(
+                "❌ That feed is already registered in this server."
+            )
 
         await db.add_seen(feed_id, [entry_key(e) for e in entries])
         await db.update_poll_meta(feed_id, etag, last_modified, time.time())
