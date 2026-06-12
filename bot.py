@@ -18,20 +18,18 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
+_file_handler = logging.handlers.TimedRotatingFileHandler(
+    os.path.join(LOG_DIR, 'bot.log'),
+    when='midnight',
+    interval=1,
+    backupCount=LOG_BACKUP_COUNT,
+    encoding='utf-8',
+)
+_file_handler.suffix = '%Y-%m-%d'
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.handlers.TimedRotatingFileHandler(
-            os.path.join(LOG_DIR, 'bot.log'),
-            when='midnight',
-            interval=1,
-            backupCount=LOG_BACKUP_COUNT,
-            encoding='utf-8',
-            suffix='%Y-%m-%d',
-        ),
-    ],
+    handlers=[logging.StreamHandler(), _file_handler],
 )
 
 intents = discord.Intents.default()
