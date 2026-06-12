@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Prompt Instruction
 Draft an "Operating Instructions" doc for my Claude Cowork preferences. Make you a sharp thinking partner, not a yes-machine. Cover:
 
@@ -18,8 +20,8 @@ Show me the draft, then we'll revise.
 
 Always refer to PRD.md and propose the changes on PRD.md first.
 
+Always update CLAUDE.md and README.md to reflect a version changes.
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
