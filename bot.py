@@ -13,23 +13,20 @@ load_dotenv()
 
 TOKEN = os.getenv('DISCORD_TOKEN')
 DATA_DIR = os.getenv('DATA_DIR', 'data')
-LOG_DIR = os.getenv('LOG_DIR', os.path.join('storage', 'logs'))
-LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
-LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
+LOG_DIR = os.path.join('storage', 'logs')
 
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    level=logging.INFO,
     format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
     handlers=[
         logging.StreamHandler(),
         logging.handlers.TimedRotatingFileHandler(
             os.path.join(LOG_DIR, 'bot.log'),
-            when='midnight',
-            interval=1,
-            backupCount=LOG_BACKUP_COUNT,
+            when='D',
+            interval=3,
+            backupCount=14,
             encoding='utf-8',
-            suffix='%Y-%m-%d',
         ),
     ],
 )
