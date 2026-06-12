@@ -1,0 +1,20 @@
+#!/bin/sh
+# PEP 8 auto-fix + lint on staged .py files before commit
+
+staged_py=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
+[ -z "$staged_py" ] && exit 0
+
+printf "PEP 8: auto-fixing staged Python files...\n"
+
+echo "$staged_py" | while IFS= read -r f; do
+    python -m autopep8 --in-place --max-line-length 99 "$f"
+    git add "$f"
+done
+
+violations=$(echo "$staged_py" | xargs python -m pycodestyle --max-line-length=99 2>&1 || true)
+if [ -n "$violations" ]; then
+    printf "\nPEP 8 violations remain after auto-fix:\n%s\n\nFix manually and re-stage.\n" "$violations"
+    exit 1
+fi
+
+printf "PEP 8: all staged files clean.\n"

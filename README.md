@@ -86,6 +86,14 @@ pip install -r requirements.txt
 python bot.py
 ```
 
+### Development setup (one-time per clone)
+
+Activate the pre-commit hook that auto-fixes and lints all staged `.py` files before each commit:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ### Run in a container
 
 ```bash
