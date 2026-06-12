@@ -113,6 +113,43 @@ embed is sent to the feed's own webhook with the last error and the next retry
 time. When the feed succeeds again, a ✅ recovery notice follows. `/rss status`
 lists all currently unhealthy feeds.
 
+## Database schema
+
+State lives in a single SQLite database at `{DATA_DIR}/rss.sqlite3`
+(`/data/rss.sqlite3` in Docker). Foreign keys are enabled. Two tables:
+
+### `feeds` — one row per feed subscription
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | `INTEGER PRIMARY KEY` | Feed id, shown in `/rss list` and accepted everywhere a `<id\|url>` ref is |
+| `guild_id` | `INTEGER NOT NULL` | Discord server the feed belongs to (all operations are scoped to it) |
+| `url` | `TEXT NOT NULL` | Feed URL; `UNIQUE (guild_id, url)` prevents duplicates per server |
+| `name` | `TEXT NOT NULL` | Display name (feed title at add time, editable via `/rss edit`) |
+| `webhook_url` | `TEXT NOT NULL` | Discord webhook that announcements are sent to |
+| `feed_type` | `TEXT NOT NULL DEFAULT 'generic'` | Which parser adapter to use |
+| `interval_seconds` | `INTEGER NOT NULL DEFAULT 14400` | Polling interval (min 120 s) |
+| `added_by` | `INTEGER NOT NULL` | Discord user id of whoever added the feed |
+| `etag` / `last_modified` | `TEXT` | HTTP caching headers for conditional GETs |
+| `last_polled` | `REAL NOT NULL DEFAULT 0` | Unix timestamp of the last poll attempt |
+| `fail_count` | `INTEGER NOT NULL DEFAULT 0` | Consecutive poll failures; drives backoff, alerts, and `/rss status` |
+| `last_error` | `TEXT` | Message from the most recent poll failure |
+| `icon_url` | `TEXT` | Favicon URL used as the webhook avatar |
+
+### `seen_entries` — items already announced
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `feed_id` | `INTEGER NOT NULL` | References `feeds(id)`, `ON DELETE CASCADE` |
+| `entry_key` | `TEXT NOT NULL` | Stable entry identifier (`id` → `link` → hash fallback) |
+
+Primary key is `(feed_id, entry_key)`. Bounded to the newest 500 entries per
+feed so it can't grow without limit.
+
+Schema migrations are handled in `db.init()`: columns added after the first
+release are patched into pre-existing databases via `PRAGMA table_info` +
+`ALTER TABLE`, so upgrading the bot never requires manual migration steps.
+
 ## Writing a feed adapter
 
 If a feed source has a non-standard shape (extra channel fields, unusual guid
