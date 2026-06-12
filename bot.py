@@ -18,11 +18,14 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
+
 def _log_namer(default_name: str) -> str:
-    # default_name is like /path/bot.log.2026-06-12 → produce bot-2026-06-12.log
+    # /path/bot.log.2026-06-12 → /path/bot-2026-06-12.log
     base, _, datestamp = default_name.rpartition('.')
     stem, ext = os.path.splitext(base)
     return f'{stem}-{datestamp}{ext}'
+
+_formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)-8s %(message)s')
 
 _file_handler = logging.handlers.TimedRotatingFileHandler(
     os.path.join(LOG_DIR, 'bot.log'),
@@ -32,11 +35,15 @@ _file_handler = logging.handlers.TimedRotatingFileHandler(
     encoding='utf-8',
 )
 _file_handler.namer = _log_namer
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
-    handlers=[logging.StreamHandler(), _file_handler],
-)
+_file_handler.setFormatter(_formatter)
+
+_stream_handler = logging.StreamHandler()
+_stream_handler.setFormatter(_formatter)
+
+logger = logging.getLogger('bot')
+logger.addHandler(_file_handler)
+logger.addHandler(_stream_handler)
+logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 
 intents = discord.Intents.default()
 
@@ -46,10 +53,9 @@ class RSSBot(commands.Bot):
         os.makedirs(DATA_DIR, exist_ok=True)
         await db.init(os.path.join(DATA_DIR, 'rss.sqlite3'))
         await self.load_extension('cogs.rss')
-        logging.getLogger('bot').info(
-            'Feed types: %s', ', '.join(adapters.FEED_TYPES))
+        logger.info('Feed types: %s', ', '.join(adapters.FEED_TYPES))
         synced = await self.tree.sync()
-        logging.getLogger('bot').info('Synced %d slash command(s)', len(synced))
+        logger.info('Synced %d slash command(s)', len(synced))
 
     async def close(self):
         await super().close()
