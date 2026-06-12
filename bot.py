@@ -34,6 +34,8 @@ logging.basicConfig(
     ],
 )
 
+logger = logging.getLogger('bot')
+
 intents = discord.Intents.default()
 
 
@@ -42,10 +44,16 @@ class RSSBot(commands.Bot):
         os.makedirs(DATA_DIR, exist_ok=True)
         await db.init(os.path.join(DATA_DIR, 'rss.sqlite3'))
         await self.load_extension('cogs.rss')
-        logging.getLogger('bot').info(
-            'Feed types: %s', ', '.join(adapters.FEED_TYPES))
+        logger.info('Feed types: %s', ', '.join(adapters.FEED_TYPES))
         synced = await self.tree.sync()
-        logging.getLogger('bot').info('Synced %d slash command(s)', len(synced))
+        logger.info('Synced %d slash command(s)', len(synced))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.type == discord.InteractionType.application_command:
+            cmd = interaction.command.qualified_name if interaction.command else 'unknown'
+            logger.info('[command] user=%s guild=%s cmd=%s',
+                        interaction.user.id, interaction.guild_id, cmd)
+        return True
 
     async def close(self):
         await super().close()
