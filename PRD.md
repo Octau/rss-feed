@@ -164,7 +164,7 @@ The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, 
 | Configurable level | `LOG_LEVEL` env var, default `INFO` |
 | Configurable directory | `LOG_DIR` env var, default `storage/logs` |
 | Command events logged | Every hybrid command invocation (user, guild, command name) emits an INFO line |
-| Webhook push events logged | Every Discord webhook send emits an INFO line (feed id, entry title, URL masked) |
+| Webhook push events logged | Every Discord webhook send emits an INFO line (feed id, entry title) |
 | Poll cycle events logged | Every poller cycle and per-feed outcome emits a log line |
 | Old handler fully removed | Existing hardcoded `TimedRotatingFileHandler` replaced entirely |
 | `.env.example` updated | All LOG_* vars documented with defaults |
@@ -189,8 +189,7 @@ The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, 
 - Named module loggers (`logging.getLogger(__name__)`) in `bot.py` and `cogs/rss.py`
 - `bot.before_invoke` hook logs every command: `[command] user=<id> guild=<id> cmd=<name>`
   (args excluded to avoid leaking webhook URLs)
-- `[webhook]` INFO line on every Discord webhook send — feed id, entry title, URL masked
-  (token replaced with `***`, only snowflake ID visible)
+- `[webhook]` INFO line on every Discord webhook send — feed id, entry title only (no URL)
 - `[poller]` INFO line per feed outcome: `feed_id=<n> status=ok|skipped|error entries_new=<n>`
 - `[poller]` DEBUG line at cycle start/end with `feeds_due` count and elapsed time
 - `.env.example` updated with all three LOG_* vars and inline comments
@@ -205,7 +204,7 @@ The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, 
 ### Constraints
 
 - No new dependencies (stdlib `logging.handlers` only)
-- Webhook URLs in log lines must be masked — token replaced with `***`
+- Webhook URLs must not appear in log lines
 - Backwards-compatible defaults: if no env vars set, daily rotation, 7 backups, INFO level
 - Poll cycle-level lines at `DEBUG`; per-feed outcomes at `INFO` (success/skip) or `WARNING`/`ERROR` (failures)
 
@@ -216,6 +215,6 @@ The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, 
 3. Pass `LOG_LEVEL` to `basicConfig(level=...)`
 4. Register `bot.before_invoke` hook in `bot.py` to emit `[command]` INFO lines
 5. Add `logger = logging.getLogger(__name__)` to `cogs/rss.py`; replace root logger calls
-6. Add `[webhook]` log line in every webhook send path; mask token in URL
+6. Add `[webhook]` log line in every webhook send path — feed id and entry title only, no URL
 7. Add `[poller]` log lines at cycle start/end (DEBUG) and per-feed outcome (INFO/WARNING/ERROR)
 8. Update `.env.example` with all three LOG_* vars
