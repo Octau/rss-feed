@@ -1,6 +1,9 @@
+import glob
 import logging
 import logging.handlers
 import os
+import time
+from datetime import datetime
 
 import discord
 from discord.ext import commands
@@ -19,16 +22,40 @@ LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
+
+class DailyFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """Writes to bot-YYYY-MM-DD.log for the current date.
+    On rollover at midnight, opens a new file for the new date."""
+
+    def __init__(self, log_dir: str, backup_count: int = 7, encoding: str = 'utf-8'):
+        self._log_dir = log_dir
+        super().__init__(
+            self._dated_path(),
+            when='midnight',
+            interval=1,
+            backupCount=backup_count,
+            encoding=encoding,
+        )
+
+    def _dated_path(self) -> str:
+        return os.path.join(self._log_dir, datetime.now().strftime('bot-%Y-%m-%d.log'))
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        self.baseFilename = os.path.abspath(self._dated_path())
+        self.stream = self._open()
+        self.rolloverAt = self.computeRollover(int(time.time()))
+        if self.backupCount > 0:
+            files = sorted(glob.glob(os.path.join(self._log_dir, 'bot-*.log')))
+            while len(files) > self.backupCount:
+                os.remove(files.pop(0))
+
+
 _formatter = logging.Formatter('%(asctime)s %(levelname)-8s %(name)s: %(message)s')
 
-_file_handler = logging.handlers.TimedRotatingFileHandler(
-    os.path.join(LOG_DIR, 'bot.log'),
-    when='midnight',
-    interval=1,
-    backupCount=LOG_BACKUP_COUNT,
-    encoding='utf-8',
-    suffix='%Y-%m-%d',
-)
+_file_handler = DailyFileHandler(LOG_DIR, backup_count=LOG_BACKUP_COUNT)
 _file_handler.setFormatter(_formatter)
 
 _stream_handler = logging.StreamHandler()
