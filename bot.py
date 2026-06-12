@@ -61,10 +61,10 @@ _file_handler.setFormatter(_formatter)
 _stream_handler = logging.StreamHandler()
 _stream_handler.setFormatter(_formatter)
 
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL, logging.INFO),
-    handlers=[_file_handler, _stream_handler],
-)
+_root = logging.getLogger()
+_root.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+_root.addHandler(_file_handler)
+_root.addHandler(_stream_handler)
 
 logger = logging.getLogger('bot')
 
