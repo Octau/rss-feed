@@ -18,6 +18,12 @@ LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
+def _log_namer(default_name: str) -> str:
+    # default_name is like /path/bot.log.2026-06-12 → produce bot-2026-06-12.log
+    base, _, datestamp = default_name.rpartition('.')
+    stem, ext = os.path.splitext(base)
+    return f'{stem}-{datestamp}{ext}'
+
 _file_handler = logging.handlers.TimedRotatingFileHandler(
     os.path.join(LOG_DIR, 'bot.log'),
     when='midnight',
@@ -25,7 +31,7 @@ _file_handler = logging.handlers.TimedRotatingFileHandler(
     backupCount=LOG_BACKUP_COUNT,
     encoding='utf-8',
 )
-_file_handler.suffix = '%Y-%m-%d'
+_file_handler.namer = _log_namer
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
     format='%(asctime)s %(levelname)-8s %(name)s: %(message)s',
