@@ -1,6 +1,8 @@
 import logging
 import logging.handlers
 import os
+import time
+from datetime import datetime
 
 import discord
 from discord.ext import commands
@@ -19,22 +21,46 @@ LOG_BACKUP_COUNT = int(os.getenv('LOG_BACKUP_COUNT', '7'))
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
-def _log_namer(default_name: str) -> str:
-    # /path/bot.log.2026-06-12 → /path/bot-2026-06-12.log
-    base, _, datestamp = default_name.rpartition('.')
-    stem, ext = os.path.splitext(base)
-    return f'{stem}-{datestamp}{ext}'
+
+class DailyFileHandler(logging.handlers.TimedRotatingFileHandler):
+    """Writes to bot-YYYY-MM-DD.log directly; rotates to a fresh dated file at midnight."""
+
+    def __init__(self, log_dir: str, backup_count: int = 7, encoding: str = 'utf-8'):
+        self.log_dir = log_dir
+        super().__init__(
+            self._dated_path(),
+            when='midnight',
+            interval=1,
+            backupCount=backup_count,
+            encoding=encoding,
+        )
+
+    def _dated_path(self) -> str:
+        return os.path.join(self.log_dir, datetime.now().strftime('bot-%Y-%m-%d.log'))
+
+    def doRollover(self):
+        if self.stream:
+            self.stream.close()
+            self.stream = None
+        self.baseFilename = self._dated_path()
+        self.stream = self._open()
+        current_time = int(time.time())
+        new_rollover = self.computeRollover(current_time)
+        while new_rollover <= current_time:
+            new_rollover += self.interval
+        self.rolloverAt = new_rollover
+        if self.backupCount > 0:
+            cutoff = current_time - self.backupCount * 86400
+            for fname in os.listdir(self.log_dir):
+                if fname.startswith('bot-') and fname.endswith('.log'):
+                    fpath = os.path.join(self.log_dir, fname)
+                    if os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+
 
 _formatter = logging.Formatter('%(asctime)s %(name)s %(levelname)-8s %(message)s')
 
-_file_handler = logging.handlers.TimedRotatingFileHandler(
-    os.path.join(LOG_DIR, 'bot.log'),
-    when='midnight',
-    interval=1,
-    backupCount=LOG_BACKUP_COUNT,
-    encoding='utf-8',
-)
-_file_handler.namer = _log_namer
+_file_handler = DailyFileHandler(LOG_DIR, backup_count=LOG_BACKUP_COUNT)
 _file_handler.setFormatter(_formatter)
 
 _stream_handler = logging.StreamHandler()
