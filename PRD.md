@@ -185,7 +185,7 @@ A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept 
 - `[command] user=<id> guild=<id> cmd=<name>` — INFO; args excluded so webhook URLs passed to `rss add`/`rss edit` never reach the log
 - `[webhook] feed_id=<n> name=<name> title=<entry title>` — INFO; webhook URL omitted entirely
 - `[poller] feed_id=<n> status=ok|skipped|error entries_new=<n>` — INFO (`error` via `log.exception`)
-- `[poller] cycle_start feeds_due=<n>` / `cycle_end elapsed=<s>` — DEBUG
+- `[poller] cycle_start feeds_due=<n>` / `cycle_end elapsed=<s>` — INFO
 
 ### Scope
 
@@ -216,5 +216,5 @@ A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept 
 3. Extract formatter and stream/file handlers; attach both to the root logger directly
 4. Override `RSSBot.interaction_check` to emit `[command]` INFO lines
 5. `[webhook]` log line in every webhook send path (poller, `rss add` preview, `rss poll`) — feed id and entry title only, no URL
-6. `[poller]` log lines at cycle start/end (DEBUG) and per-feed outcome (INFO / exception)
+6. `[poller]` log lines at cycle start/end and per-feed outcome (INFO / exception)
 7. Update `.env.example` with all three LOG_* vars and inline comments
