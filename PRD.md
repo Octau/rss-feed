@@ -179,13 +179,13 @@ A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept 
 
 **Root logger configured directly, not via `basicConfig`.** `basicConfig` is a no-op when the root logger already has handlers (which discord.py or any early import can cause), silently dropping our handlers — this bit PR #8. Attach the file and stream handlers to the root logger explicitly with `addHandler`.
 
-**Command logging via `interaction_check`.** All RSS commands are app (slash) commands; an `interaction_check` override on the bot logs every application-command interaction and always returns `True`.
+**Command logging via a custom `CommandTree`.** All RSS commands are app (slash) commands. `commands.Bot` has no `interaction_check` hook — that method only exists on `app_commands.CommandTree` — so the bot is constructed with `tree_cls=LoggingCommandTree`, a tree subclass whose `interaction_check` logs every application-command interaction and returns `True`. (Guarded on `InteractionType.application_command` so autocomplete and component interactions aren't logged.)
 
 **Log line formats:**
 - `[command] user=<id> guild=<id> cmd=<name>` — INFO; args excluded so webhook URLs passed to `rss add`/`rss edit` never reach the log
 - `[webhook] feed_id=<n> name=<name> title=<entry title>` — INFO; webhook URL omitted entirely
 - `[poller] feed_id=<n> status=ok|skipped|error entries_new=<n>` — INFO (`error` via `log.exception`)
-- `[poller] cycle_start feeds_due=<n>` / `cycle_end elapsed=<s>` — INFO
+- `[poller] cycle_start feeds_due=<n>` / `cycle_end elapsed=<s>` — DEBUG
 
 ### Scope
 
@@ -214,7 +214,7 @@ A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept 
 1. Read `LOG_DIR`, `LOG_BACKUP_COUNT`, `LOG_LEVEL` from env in `bot.py`
 2. Add `DailyFileHandler(TimedRotatingFileHandler)`: dated active file, `doRollover` reopens next date's file and prunes beyond `backupCount`
 3. Extract formatter and stream/file handlers; attach both to the root logger directly
-4. Override `RSSBot.interaction_check` to emit `[command]` INFO lines
+4. Add `LoggingCommandTree(app_commands.CommandTree)` with an `interaction_check` that emits `[command]` INFO lines; pass `tree_cls=LoggingCommandTree` to the bot
 5. `[webhook]` log line in every webhook send path (poller, `rss add` preview, `rss poll`) — feed id and entry title only, no URL
 6. `[poller]` log lines at cycle start/end and per-feed outcome (INFO / exception)
 7. Update `.env.example` with all three LOG_* vars and inline comments

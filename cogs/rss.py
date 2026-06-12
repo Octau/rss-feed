@@ -196,8 +196,8 @@ class RSS(commands.Cog):
         all_feeds = await db.due_feeds(started)
         # Filter out feeds that are still in backoff.
         feeds = [f for f in all_feeds if self._is_due(f, started)]
-        log.info("[poller] cycle_start feeds_due=%d in_backoff=%d",
-                 len(feeds), len(all_feeds) - len(feeds))
+        log.debug("[poller] cycle_start feeds_due=%d in_backoff=%d",
+                  len(feeds), len(all_feeds) - len(feeds))
         for feed in feeds:
             try:
                 await self.poll_feed(feed)
@@ -208,7 +208,7 @@ class RSS(commands.Cog):
                 fail_count = await db.record_poll_failure(feed["id"], str(exc))
                 await self._maybe_alert_failure(feed, fail_count)
             await asyncio.sleep(FETCH_SPACING)
-        log.info("[poller] cycle_end elapsed=%.1fs", time.time() - started)
+        log.debug("[poller] cycle_end elapsed=%.1fs", time.time() - started)
 
     @poller.before_loop
     async def before_poller(self):
