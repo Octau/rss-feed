@@ -196,19 +196,19 @@ class RSS(commands.Cog):
         all_feeds = await db.due_feeds(started)
         # Filter out feeds that are still in backoff.
         feeds = [f for f in all_feeds if self._is_due(f, started)]
-        log.info("Poll cycle started: %d feed(s) due (%d in backoff)",
-                 len(feeds), len(all_feeds) - len(feeds))
+        log.debug("[poller] cycle_start feeds_due=%d in_backoff=%d",
+                  len(feeds), len(all_feeds) - len(feeds))
         for feed in feeds:
             try:
                 await self.poll_feed(feed)
             except Exception as exc:
-                log.exception("Polling failed for feed %s (%s)", feed["id"], feed["url"])
+                log.exception("[poller] feed_id=%s status=error", feed["id"])
                 await db.update_poll_meta(
                     feed["id"], feed["etag"], feed["last_modified"], time.time())
                 fail_count = await db.record_poll_failure(feed["id"], str(exc))
                 await self._maybe_alert_failure(feed, fail_count)
             await asyncio.sleep(FETCH_SPACING)
-        log.info("Poll cycle finished in %.1fs", time.time() - started)
+        log.debug("[poller] cycle_end elapsed=%.1fs", time.time() - started)
 
     @poller.before_loop
     async def before_poller(self):
@@ -255,6 +255,7 @@ class RSS(commands.Cog):
             recovered = await db.record_poll_success(feed["id"])
             if recovered:
                 await self._send_recovery_notice(feed)
+            log.info("[poller] feed_id=%s status=skipped entries_new=0", feed["id"])
             return
 
         seen = await db.seen_keys(feed["id"])
@@ -267,6 +268,7 @@ class RSS(commands.Cog):
             await self._send_recovery_notice(feed)
 
         if not new_entries:
+            log.info("[poller] feed_id=%s status=ok entries_new=0", feed["id"])
             return
 
         # Record everything as seen, but only announce the newest few,
@@ -276,16 +278,16 @@ class RSS(commands.Cog):
 
         webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
         for entry in to_send:
-            log.info("Webhook send: feed %s (%s) entry %r",
-                     feed["id"], feed["name"], entry_key(entry))
+            log.info("[webhook] feed_id=%s name=%r title=%r",
+                     feed["id"], feed["name"], entry.get("title", "Untitled"))
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entry),
                 username=feed["name"][:80],
                 avatar_url=feed["icon_url"] or None,
             )
             await asyncio.sleep(SEND_SPACING)
-        log.info("Feed %s (%s): announced %d new item(s)",
-                 feed["id"], feed["name"], len(to_send))
+        log.info("[poller] feed_id=%s status=ok entries_new=%d",
+                 feed["id"], len(to_send))
 
     async def _send_recovery_notice(self, feed) -> None:
         embed = discord.Embed(
@@ -346,7 +348,8 @@ class RSS(commands.Cog):
         if entries:
             webhook = discord.Webhook.from_url(webhook_url, session=self.session)
             try:
-                log.info("Webhook send: preview for new feed %r (%s)", name, feed_url)
+                log.info("[webhook] feed_id=%s name=%r title=%r (preview)",
+                         feed_id, name, entries[0].get("title", "Untitled"))
                 await webhook.send(
                     embed=build_embed(name, feed_url, entries[0]),
                     username=name[:80],
@@ -548,8 +551,8 @@ class RSS(commands.Cog):
 
         webhook = discord.Webhook.from_url(feed["webhook_url"], session=self.session)
         try:
-            log.info("Webhook send: forced poll preview for feed %s (%s)",
-                     feed["id"], feed["name"])
+            log.info("[webhook] feed_id=%s name=%r title=%r (forced)",
+                     feed["id"], feed["name"], entries[0].get("title", "Untitled"))
             await webhook.send(
                 embed=build_embed(feed["name"], feed["url"], entries[0]),
                 username=feed["name"][:80],

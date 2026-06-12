@@ -146,3 +146,75 @@ Route all icon URLs through **Google S2 Favicon Service** (`https://www.google.c
 - Applies on `rss add` and `rss edit` (both already call `extract_icon_url`)
 - No new dependencies (stdlib `urllib.parse` only)
 - No DB migration — existing rows unaffected until next edit/re-add
+
+---
+
+## v1.3 — Logging Reimplementation (signed off 2026-06-12; supersedes reverted PR #8)
+
+### Problem
+
+The current logging setup in `bot.py` is hardcoded: 3-day rotation, 14 backups, root logger only. Operators can't tune retention without editing source. Log filenames don't embed the date — the active file is always `bot.log`, so grepping or archiving by day requires waiting for rotation. There is no consistent record of which commands were invoked, when webhooks were pushed, or when the poller ran — debugging a missed announcement means scrubbing discord.py internals rather than reading a clear event log.
+
+A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept writing the live log to `bot.log` and only renamed archives, and its `basicConfig` call could be silently skipped if another import configured the root logger first.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Date in filename at runtime | The **active** log file is `bot-YYYY-MM-DD.log` for the current date — not just archives |
+| Daily rotation, 7-day retention | Rotates at midnight; latest 7 daily files kept, older deleted |
+| Configurable retention | `LOG_BACKUP_COUNT` env var, default `7` |
+| Configurable level | `LOG_LEVEL` env var, default `INFO` |
+| Configurable directory | `LOG_DIR` env var, default `storage/logs` |
+| Command events logged | Every slash command invocation (user, guild, command name) emits an INFO line |
+| Webhook push events logged | Every Discord webhook send emits an INFO line (feed id, entry title — **no webhook URL**) |
+| Poll cycle events logged | Every poller cycle and per-feed outcome emits a log line |
+| Old handler fully removed | Hardcoded `TimedRotatingFileHandler(when='D', interval=3, backupCount=14)` replaced entirely |
+| `.env.example` updated | All LOG_* vars documented with defaults |
+| No code changes needed for defaults | Existing deployments work unchanged after update |
+
+### Design Decisions (locked)
+
+**Dated active file — `DailyFileHandler` subclass.** Stock `TimedRotatingFileHandler` always writes to the base filename and only applies the date suffix to rotated archives. To make the runtime write directly to its own date's file, subclass it: `__init__` opens `bot-<today>.log`, and `doRollover` closes the stream, repoints `baseFilename` at the new date's path, reopens, and prunes `bot-*.log` files beyond `backupCount` via glob. Based on the reference `TimedRotatingFileHandler` pattern (formatter + handler extracted, named loggers via `getLogger`).
+
+**Root logger configured directly, not via `basicConfig`.** `basicConfig` is a no-op when the root logger already has handlers (which discord.py or any early import can cause), silently dropping our handlers — this bit PR #8. Attach the file and stream handlers to the root logger explicitly with `addHandler`.
+
+**Command logging via a custom `CommandTree`.** All RSS commands are app (slash) commands. `commands.Bot` has no `interaction_check` hook — that method only exists on `app_commands.CommandTree` — so the bot is constructed with `tree_cls=LoggingCommandTree`, a tree subclass whose `interaction_check` logs every application-command interaction and returns `True`. (Guarded on `InteractionType.application_command` so autocomplete and component interactions aren't logged.)
+
+**Log line formats:**
+- `[command] user=<id> guild=<id> cmd=<name>` — INFO; args excluded so webhook URLs passed to `rss add`/`rss edit` never reach the log
+- `[webhook] feed_id=<n> name=<name> title=<entry title>` — INFO; webhook URL omitted entirely
+- `[poller] feed_id=<n> status=ok|skipped|error entries_new=<n>` — INFO (`error` via `log.exception`)
+- `[poller] cycle_start feeds_due=<n>` / `cycle_end elapsed=<s>` — DEBUG
+
+### Scope
+
+**In scope (v1.3)**
+- Remove the hardcoded handler; add `DailyFileHandler` writing to `bot-YYYY-MM-DD.log` for the current date
+- Midnight rotation; keep latest `LOG_BACKUP_COUNT` (default 7) daily files, prune older
+- `LOG_DIR`, `LOG_BACKUP_COUNT`, `LOG_LEVEL` env vars with safe defaults, documented in `.env.example`
+- Extracted formatter and handlers; root logger configured via `addHandler` (no `basicConfig`)
+- `[command]`, `[webhook]`, `[poller]` event lines as specified above
+
+**Out of scope (v1.3)**
+- Structured (JSON) logging — already deferred from v1.1
+- Log shipping / remote sinks
+- Per-logger level overrides
+- Size-based rotation
+- Logging command args (risk of leaking URLs)
+
+### Constraints
+
+- No new dependencies (stdlib `logging`, `logging.handlers`, `glob` only)
+- Webhook URLs must not appear in any log line
+- Backwards-compatible defaults: if no env vars set — daily rotation, 7 backups, INFO level, `storage/logs`
+
+### Implementation Plan
+
+1. Read `LOG_DIR`, `LOG_BACKUP_COUNT`, `LOG_LEVEL` from env in `bot.py`
+2. Add `DailyFileHandler(TimedRotatingFileHandler)`: dated active file, `doRollover` reopens next date's file and prunes beyond `backupCount`
+3. Extract formatter and stream/file handlers; attach both to the root logger directly
+4. Add `LoggingCommandTree(app_commands.CommandTree)` with an `interaction_check` that emits `[command]` INFO lines; pass `tree_cls=LoggingCommandTree` to the bot
+5. `[webhook]` log line in every webhook send path (poller, `rss add` preview, `rss poll`) — feed id and entry title only, no URL
+6. `[poller]` log lines at cycle start/end and per-feed outcome (INFO / exception)
+7. Update `.env.example` with all three LOG_* vars and inline comments
