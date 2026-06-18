@@ -19,7 +19,7 @@ via webhooks.
 ## Commands
 
 All commands are slash commands. `add`, `remove`, `edit`, `status`, `interval`,
-and `poll` require the **Manage Server** permission by default.
+`reset`, and `poll` require the **Manage Server** permission by default.
 
 | Command | Description |
 | --- | --- |
@@ -31,6 +31,7 @@ and `poll` require the **Manage Server** permission by default.
 | `/rss edit <id\|url> [name] [webhook] [interval] [type]` | Update a feed in place without re-adding it |
 | `/rss status` | Show feeds with consecutive polling failures and their last error |
 | `/rss interval <id\|url> <seconds>` | Change polling interval (min 120 s) |
+| `/rss reset` | Mark every feed in this server due now so they re-poll on the next cycle (only new items are announced) |
 | `/rss poll <id\|url>` | Fetch a feed immediately and push its latest entry to the webhook |
 
 `/rss add` responds ephemerally so the webhook URL stays private; `/rss edit`
@@ -50,7 +51,7 @@ The `feed_type` option on `rss add` / `rss edit` selects a parser adapter:
 | Type | Description |
 | --- | --- |
 | `generic` | Raw feedparser (works for most RSS/Atom feeds) |
-| `f5` | F5 / NGINX Support feed shape |
+| `f5` | F5 / NGINX Support feed shape — **announces security advisories only**: entries without a `CVE-YYYY-NNNN` reference in the title or description are dropped |
 | `royalroad` | Royal Road fiction feeds |
 
 ## Setup

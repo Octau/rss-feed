@@ -533,6 +533,20 @@ class RSS(commands.Cog):
         await interaction.response.send_message(
             f"⏱️ **{feed['name']}** now polls every {seconds}s.")
 
+    @rss.command(name="reset")
+    @app_commands.default_permissions(manage_guild=True)
+    async def reset(self, interaction: discord.Interaction):
+        """Reset every feed's last-poll time so they all re-poll on the next cycle."""
+        count = await db.reset_feeds(interaction.guild_id)
+        if count == 0:
+            return await interaction.response.send_message(
+                "No feeds to reset. Add one with `/rss add`.", ephemeral=True)
+        log.info("Reset %d feed(s) in guild %s by user %s",
+                 count, interaction.guild_id, interaction.user.id)
+        await interaction.response.send_message(
+            f"🔄 Reset last-poll time for **{count}** feed(s). "
+            "They'll be re-polled on the next cycle (new items only).")
+
     @rss.command(name="poll")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(ref="Feed id or URL")

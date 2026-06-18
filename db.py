@@ -182,6 +182,22 @@ async def mark_due(feed_id: int) -> None:
     await _conn.commit()
 
 
+async def reset_feeds(guild_id: int) -> int:
+    """Mark every feed in a guild as due now (clears polling cursors).
+
+    Resets last_polled and the conditional-GET headers for all of the guild's
+    feeds so they re-fetch on the next cycle. seen_entries and fail_count are
+    left intact, so no historical items are re-announced. Returns the number
+    of feeds reset.
+    """
+    cur = await _conn.execute(
+        "UPDATE feeds SET last_polled = 0, etag = NULL, last_modified = NULL"
+        " WHERE guild_id = ?",
+        (guild_id,))
+    await _conn.commit()
+    return cur.rowcount
+
+
 async def update_poll_meta(feed_id: int, etag: str | None,
                            last_modified: str | None, polled_at: float) -> None:
     await _conn.execute(
