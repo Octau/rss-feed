@@ -10,6 +10,7 @@ via webhooks.
 - Background poller with per-feed intervals, conditional HTTP requests
   (ETag / Last-Modified), and built-in rate limiting
 - Only announces items it hasn't seen before (state kept in SQLite)
+- Daily calibration cronjob: re-polls every feed fleet-wide at a fixed time (default 00:01 GMT+8)
 - Failure handling: exponential backoff for broken feeds, webhook alerts after
   repeated failures, recovery notices, and `/rss status` for health visibility
 - Delivery via Discord webhooks with formatted embeds and per-feed favicon avatars
@@ -89,6 +90,8 @@ The `feed_type` option on `rss add` / `rss edit` selects a parser adapter:
 | `PAGE_SIZE` | `5` | Feeds per page in `/rss list` |
 | `RSS_COLOR` | `0xEE802F` | Embed color for announcements (hex) |
 | `ERROR_COLOR` | `0xE74C3C` | Embed color for failure alerts (hex) |
+| `CALIBRATION_TIME` | `00:01` | Daily feed-calibration run time, `HH:MM` wall-clock |
+| `CALIBRATION_TZ_OFFSET` | `8` | UTC offset (hours) the calibration time is expressed in (GMT+8) |
 
 ### Run locally
 
@@ -132,6 +135,17 @@ When a poll fails, the feed backs off exponentially: the effective interval is
 embed is sent to the feed's own webhook with the last error and the next retry
 time. When the feed succeeds again, a ✅ recovery notice follows. `/rss status`
 lists all currently unhealthy feeds.
+
+### Daily calibration
+
+Once a day at a fixed time (default **00:01 GMT+8**) a calibration job runs the
+scheduled, fleet-wide equivalent of `/rss reset`: it clears every feed's
+last-poll cursor and conditional-GET headers (`etag` / `last_modified`) across
+all servers so the whole fleet re-fetches cleanly on the next cycle. It is
+non-destructive — `seen_entries` and `fail_count` are preserved, so only
+genuinely new items are announced and backoff state is kept. The run time and
+its UTC offset are configurable via `CALIBRATION_TIME` and
+`CALIBRATION_TZ_OFFSET`.
 
 ## Database schema
 

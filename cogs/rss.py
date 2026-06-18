@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 
 import aiohttp
 import discord
@@ -35,6 +35,23 @@ TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = int(os.getenv("MAX_BACKOFF", "3600"))             # cap backoff at 1 hour
 PAGE_SIZE = int(os.getenv("PAGE_SIZE", "5"))                    # feeds per page in rss list
+# Daily calibration: wall-clock HH:MM and the UTC offset it's expressed in.
+CALIBRATION_TIME = os.getenv("CALIBRATION_TIME", "00:01")       # daily reset time (HH:MM)
+CALIBRATION_TZ_OFFSET = int(os.getenv("CALIBRATION_TZ_OFFSET", "8"))  # hours from UTC (GMT+8)
+
+
+def _parse_calibration_time(value: str, offset_hours: int) -> dtime:
+    """Build a tz-aware time from 'HH:MM'; falls back to 00:01 if malformed."""
+    tz = timezone(timedelta(hours=offset_hours))
+    try:
+        hour, minute = (int(part) for part in value.split(":", 1))
+        return dtime(hour=hour, minute=minute, tzinfo=tz)
+    except (ValueError, TypeError):
+        log.warning("Invalid CALIBRATION_TIME %r; falling back to 00:01", value)
+        return dtime(hour=0, minute=1, tzinfo=tz)
+
+
+CALIBRATION_AT = _parse_calibration_time(CALIBRATION_TIME, CALIBRATION_TZ_OFFSET)
 
 
 def _google_favicon(site_url: str) -> str | None:
@@ -165,9 +182,11 @@ class RSS(commands.Cog):
         self.session = aiohttp.ClientSession(
             timeout=FETCH_TIMEOUT, headers={"User-Agent": USER_AGENT})
         self.poller.start()
+        self.calibration.start()
 
     async def cog_unload(self):
         self.poller.cancel()
+        self.calibration.cancel()
         if self.session:
             await self.session.close()
 
@@ -218,6 +237,24 @@ class RSS(commands.Cog):
 
     @poller.before_loop
     async def before_poller(self):
+        await self.bot.wait_until_ready()
+
+    # -------------------------------------------------------------- calibration
+
+    @tasks.loop(time=CALIBRATION_AT)
+    async def calibration(self):
+        """Daily fleet-wide reset: re-poll every feed on the next cycle.
+
+        Same non-destructive behavior as /rss reset (clears polling cursors,
+        keeps seen_entries and fail_count) but across every guild. Scheduled at
+        CALIBRATION_TIME in the CALIBRATION_TZ_OFFSET timezone (default 00:01
+        GMT+8).
+        """
+        count = await db.reset_all_feeds()
+        log.info("[calibration] reset %d feed(s) across all guilds", count)
+
+    @calibration.before_loop
+    async def before_calibration(self):
         await self.bot.wait_until_ready()
 
     def _is_due(self, feed, now: float) -> bool:

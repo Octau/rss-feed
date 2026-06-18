@@ -1,4 +1,4 @@
-# PRD — Discord RSS Feed Bot v1.6
+# PRD — Discord RSS Feed Bot v1.7
 
 **Date:** 2026-06-18
 **Status:** Signed off — in progress
@@ -394,3 +394,89 @@ deployment tunable and remains a hard-coded constant.
 2. Add all ten vars (commented, with defaults) to `.env.example`
 3. Document them in `README.md` (env table) and `CLAUDE.md` (Configuration +
    Key Constants)
+
+---
+
+## v1.7 — Daily feed calibration cronjob (signed off 2026-06-18)
+
+### Problem
+
+`/rss reset` lets an operator force a fresh re-poll of every feed in **their
+guild**, but it is entirely manual and guild-scoped. There is no scheduled,
+fleet-wide equivalent: after a quiet overnight window — or any drift between a
+feed's `last_polled` cursor and its real publishing cadence — feeds only catch
+up on their own intervals, and a missed conditional-GET (stale `etag` /
+`last_modified`) can leave a feed parked until its next due time. Operators want
+a hands-off daily "calibration" that clears every feed's polling cursors on a
+fixed schedule so the whole fleet re-fetches cleanly each day, without anyone
+running a command in each server.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Scheduled calibration | A background job runs once per day at **00:01 GMT+8** and resets every feed |
+| Same behavior as `/rss reset` | Clears `last_polled`/`etag`/`last_modified`; preserves `seen_entries` and `fail_count` |
+| Fleet-wide, not guild-scoped | One run covers every feed in every guild (the cron has no invoking guild) |
+| Non-destructive | No historical items are re-announced — only genuinely new entries go out on the next cycle |
+| Observable | The run emits a `[calibration]` log line with the number of feeds reset |
+| Configurable schedule | Run time and UTC offset are overridable via `.env`, consistent with v1.6 |
+
+### Design Decisions (locked)
+
+**Reuse the `/rss reset` semantics, fleet-wide.** `/rss reset` calls
+`db.reset_feeds(guild_id)`. The cron has no guild context, so add a sibling
+`db.reset_all_feeds()` with the same `UPDATE` minus the `WHERE guild_id = ?`
+clause: it clears `last_polled = 0`, `etag = NULL`, `last_modified = NULL` for
+**all** feeds and returns the affected row count. `seen_entries` and
+`fail_count` are untouched, so behavior matches `/rss reset` exactly — only
+new items are announced, and backoff state survives.
+
+**Schedule via `discord.ext.tasks` with a tz-aware `time`.** Add a second
+`tasks.loop(time=...)` task (`calibration`) alongside the existing `poller`,
+started in `cog_load` and cancelled in `cog_unload`. `tasks.loop(time=...)`
+fires daily at the given wall-clock time; the time is built as a tz-aware
+`datetime.time(hour, minute, tzinfo=timezone(timedelta(hours=offset)))`. GMT+8
+has no DST, so a fixed `+08:00` offset is correct year-round — no `zoneinfo`
+dependency needed.
+
+**Env-configurable, same style as v1.6.** Two tunables, read once at module
+load with the documented defaults as fallbacks:
+- `CALIBRATION_TIME` (default `00:01`) — `HH:MM` wall-clock time to run
+- `CALIBRATION_TZ_OFFSET` (default `8`) — hours offset from UTC (GMT+8)
+
+A malformed `CALIBRATION_TIME` falls back to the default rather than crashing
+the cog load.
+
+**No new command, no new schema.** Calibration is purely a scheduled internal
+job; it reuses the existing reset path. No table or column changes — so no
+migration. `/rss reset` is unchanged and remains the manual, guild-scoped
+control.
+
+### Scope
+
+**In scope (v1.7)**
+- `db.reset_all_feeds() -> int` — fleet-wide reset of polling cursors
+- A `calibration` `tasks.loop(time=...)` in `cogs/rss.py` running daily at
+  00:01 GMT+8, calling `db.reset_all_feeds()` and logging the count
+- `CALIBRATION_TIME` and `CALIBRATION_TZ_OFFSET` env vars (with safe defaults)
+- Document the job and vars in `.env.example`, `README.md`, and `CLAUDE.md`
+
+**Out of scope (v1.7)**
+- Per-guild calibration schedules or opt-out
+- Flushing `seen_entries` on calibration (stays non-destructive, as `/rss reset`)
+- Multiple calibration times per day / cron-expression syntax
+- A command to trigger or reschedule calibration at runtime
+- DST-aware timezones (fixed UTC offset only)
+
+### Implementation Plan
+
+1. Add `db.reset_all_feeds() -> int` mirroring `db.reset_feeds` without the
+   guild filter
+2. In `cogs/rss.py`, parse `CALIBRATION_TIME` + `CALIBRATION_TZ_OFFSET` into a
+   tz-aware `datetime.time`; add a `calibration` `tasks.loop(time=...)` that
+   calls `db.reset_all_feeds()` and logs `[calibration] reset <n> feed(s)`
+3. Start the task in `cog_load`, cancel it in `cog_unload`; gate its first run
+   on `wait_until_ready` via a `before_loop`
+4. Add both env vars to `.env.example`; document the job + vars in `README.md`
+   and `CLAUDE.md`

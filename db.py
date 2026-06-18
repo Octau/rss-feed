@@ -198,6 +198,20 @@ async def reset_feeds(guild_id: int) -> int:
     return cur.rowcount
 
 
+async def reset_all_feeds() -> int:
+    """Mark every feed in every guild as due now (clears polling cursors).
+
+    Fleet-wide counterpart to reset_feeds, used by the daily calibration job.
+    Resets last_polled and the conditional-GET headers for all feeds so they
+    re-fetch on the next cycle. seen_entries and fail_count are left intact, so
+    no historical items are re-announced. Returns the number of feeds reset.
+    """
+    cur = await _conn.execute(
+        "UPDATE feeds SET last_polled = 0, etag = NULL, last_modified = NULL")
+    await _conn.commit()
+    return cur.rowcount
+
+
 async def update_poll_meta(feed_id: int, etag: str | None,
                            last_modified: str | None, polled_at: float) -> None:
     await _conn.execute(
