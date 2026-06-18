@@ -7,12 +7,17 @@ rest of the bot (entry_key, build_embed) consumes, so an F5 feed can flow
 through the existing poll/announce pipeline unchanged.
 """
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from email.utils import parsedate_to_datetime
 from typing import ClassVar
 
 log = logging.getLogger("adapters.f5")
+
+# F5's feed mixes product news with security advisories; only the latter (which
+# carry a CVE identifier) are announced. Match CVE-YYYY-NNNN (4+ digit sequence).
+CVE_RE = re.compile(r"CVE-\d{4}-\d{4,}", re.IGNORECASE)
 
 
 def _parse_pub_date(value: str) -> time.struct_time | None:
@@ -61,7 +66,16 @@ class F5RSSFeed:
         return self.ttl * 60
 
     def entries(self) -> list[dict]:
-        return [item.as_entry() for item in self.items]
+        """Only items referencing a CVE in the title or description.
+
+        F5's feed carries general product news alongside security advisories;
+        servers subscribe for the advisories, so non-CVE items are dropped here
+        and never reach the poller, previews, or seen-entry tracking.
+        """
+        return [
+            item.as_entry() for item in self.items
+            if CVE_RE.search(item.title) or CVE_RE.search(item.description)
+        ]
 
     @classmethod
     def from_parsed(cls, parsed) -> "F5RSSFeed":

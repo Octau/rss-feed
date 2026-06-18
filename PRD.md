@@ -1,6 +1,6 @@
-# PRD — Discord RSS Feed Bot v1.1
+# PRD — Discord RSS Feed Bot v1.4
 
-**Date:** 2026-06-11
+**Date:** 2026-06-18
 **Status:** Signed off — in progress
 
 ---
@@ -218,3 +218,68 @@ A first attempt (PR #8) shipped suffix-based rotation but was reverted: it kept 
 5. `[webhook]` log line in every webhook send path (poller, `rss add` preview, `rss poll`) — feed id and entry title only, no URL
 6. `[poller]` log lines at cycle start/end and per-feed outcome (INFO / exception)
 7. Update `.env.example` with all three LOG_* vars and inline comments
+
+---
+
+## v1.4 — Manual reset & F5 CVE filtering (signed off 2026-06-18)
+
+### Problem
+
+Two operational gaps:
+
+1. **No way to force a re-poll of every feed at once.** After fixing a broken
+   webhook, changing channels, or recovering from an outage, an operator can
+   only force one feed at a time (`/rss poll`) or wait out each feed's interval.
+   There is no "poll everything now" control.
+2. **The F5 feed is too noisy.** F5's NGINX support feed carries a mix of
+   product announcements, EoL notices, and security advisories. Most servers
+   subscribe to it only for the security content. Every non-security item is
+   currently announced, drowning out the CVE advisories operators actually care
+   about.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Force re-poll of all feeds | `/rss reset` marks every feed in the guild due on the next cycle |
+| Reset is non-destructive | `seen_entries` is preserved — no historical items are re-announced |
+| Reset is guild-scoped | Only the invoking server's feeds are touched |
+| F5 noise reduction | Only F5 entries that reference a CVE are announced; non-CVE items are silently dropped |
+
+### Design Decisions (locked)
+
+**`/rss reset` — clears polling cursors, keeps seen history.** Resets
+`last_polled = 0`, `etag = NULL`, `last_modified = NULL` for every feed in the
+guild (the same fields `db.mark_due()` clears for a single feed). Because
+`seen_entries` is untouched, the next cycle fetches each feed fresh but only
+announces genuinely new items. Requires the **Manage Server** permission, like
+the other mutating commands. Replies with the number of feeds reset. Backoff
+state (`fail_count`) is left intact so a broken feed doesn't lose its backoff.
+
+**F5 CVE filter — applied in the adapter.** Filtering lives in
+`F5RSSFeed.entries()`, so only CVE entries flow through the rest of the
+pipeline. This keeps the poller, the `/rss add` preview, and `/rss poll`
+consistent: all three see the same filtered view. An entry qualifies when its
+title or description matches `CVE-\d{4}-\d{4,}` (case-insensitive). Non-CVE
+items never reach `seen_entries`, so if such an item later gains a CVE
+reference it would still be announced.
+
+### Scope
+
+**In scope (v1.4)**
+- `/rss reset` slash command (Manage Server) + `db.reset_feeds(guild_id)`
+- CVE-only filtering in the F5 adapter
+
+**Out of scope (v1.4)**
+- Configurable / per-feed keyword filtering for arbitrary feed types (still
+  deferred from v1.1)
+- A `/rss reset <id|url>` single-feed variant (use `/rss poll` instead)
+- Flushing `seen_entries` on reset
+
+### Implementation Plan
+
+1. Add `db.reset_feeds(guild_id) -> int` — clear `last_polled`/`etag`/
+   `last_modified` for all feeds in the guild, return affected row count
+2. Add `/rss reset` command in `cogs/rss.py` (Manage Server, guild-scoped)
+3. Add a CVE regex + filter in `adapters/f5.py`'s `entries()`
+4. Update `CLAUDE.md` and `README.md` to document both changes
