@@ -3,6 +3,7 @@ import asyncio
 import hashlib
 import html
 import logging
+import os
 import re
 import time
 from datetime import datetime, timezone
@@ -19,19 +20,21 @@ import db
 
 log = logging.getLogger("rss")
 
-MIN_INTERVAL = 120          # floor for per-feed polling interval (seconds)
-DEFAULT_INTERVAL = 14400    # 4 hours
-MAX_ITEMS_PER_POLL = 5      # cap announcements per feed per cycle
-FETCH_SPACING = 1.0         # pause between feed fetches within one cycle
-SEND_SPACING = 1.0          # pause between webhook sends
-FETCH_TIMEOUT = aiohttp.ClientTimeout(total=20)
+# Tunables. Each reads from .env at startup, falling back to the documented
+# default. load_dotenv() runs in bot.py before this cog is loaded.
+MIN_INTERVAL = int(os.getenv("MIN_INTERVAL", "120"))            # floor per-feed interval (s)
+DEFAULT_INTERVAL = int(os.getenv("DEFAULT_INTERVAL", "14400"))  # 4 hours
+MAX_ITEMS_PER_POLL = int(os.getenv("MAX_ITEMS_PER_POLL", "5"))  # cap announcements per cycle
+FETCH_SPACING = float(os.getenv("FETCH_SPACING", "1.0"))        # pause between feed fetches (s)
+SEND_SPACING = float(os.getenv("SEND_SPACING", "1.0"))          # pause between webhook sends (s)
+FETCH_TIMEOUT = aiohttp.ClientTimeout(total=int(os.getenv("FETCH_TIMEOUT", "20")))
 USER_AGENT = "rss-feed-discord-bot/1.0 (+https://github.com/)"
-RSS_COLOR = 0xEE802F
-ERROR_COLOR = 0xE74C3C
+RSS_COLOR = int(os.getenv("RSS_COLOR", "0xEE802F"), 0)          # orange — embeds
+ERROR_COLOR = int(os.getenv("ERROR_COLOR", "0xE74C3C"), 0)      # red — failure alerts
 TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
-MAX_BACKOFF = 3600          # cap backoff at 1 hour
-PAGE_SIZE = 10              # feeds per page in rss list
+MAX_BACKOFF = int(os.getenv("MAX_BACKOFF", "3600"))             # cap backoff at 1 hour
+PAGE_SIZE = int(os.getenv("PAGE_SIZE", "5"))                    # feeds per page in rss list
 
 
 def _google_favicon(site_url: str) -> str | None:

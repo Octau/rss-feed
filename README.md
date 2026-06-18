@@ -27,7 +27,7 @@ All commands are slash commands. `add`, `remove`, `edit`, `status`, `interval`,
 | `/hello` | Greets the invoking user |
 | `/rss add <feed_url> <webhook_url> [interval] [feed_type]` | Register a feed (default interval 4 h, default type `generic`) |
 | `/rss remove <id\|url>` | Stop polling a feed |
-| `/rss list` | List this server's feeds (paginated, 10 per page, prev/next buttons) |
+| `/rss list` | List this server's feeds (paginated, 5 per page, prev/next buttons) |
 | `/rss edit <id\|url> [name] [webhook] [interval] [type]` | Update a feed in place without re-adding it |
 | `/rss status` | Show feeds with consecutive polling failures and their last error |
 | `/rss interval <id\|url> <seconds>` | Change polling interval (min 120 s) |
@@ -79,6 +79,16 @@ The `feed_type` option on `rss add` / `rss edit` selects a parser adapter:
 | `LOG_DIR` | `storage/logs` | Directory for daily log files |
 | `LOG_BACKUP_COUNT` | `7` | Daily log files to keep; older ones are deleted at rotation |
 | `LOG_LEVEL` | `INFO` | Minimum log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) |
+| `MIN_INTERVAL` | `120` | Floor for per-feed polling interval (seconds) |
+| `DEFAULT_INTERVAL` | `14400` | Default polling interval for new feeds (seconds, 4h) |
+| `MAX_ITEMS_PER_POLL` | `5` | Max new entries announced per feed per cycle |
+| `FETCH_SPACING` | `1.0` | Pause between feed fetches within a cycle (seconds) |
+| `SEND_SPACING` | `1.0` | Pause between webhook sends (seconds) |
+| `FETCH_TIMEOUT` | `20` | HTTP request timeout (seconds) |
+| `MAX_BACKOFF` | `3600` | Cap on the exponential backoff interval (seconds) |
+| `PAGE_SIZE` | `5` | Feeds per page in `/rss list` |
+| `RSS_COLOR` | `0xEE802F` | Embed color for announcements (hex) |
+| `ERROR_COLOR` | `0xE74C3C` | Embed color for failure alerts (hex) |
 
 ### Run locally
 

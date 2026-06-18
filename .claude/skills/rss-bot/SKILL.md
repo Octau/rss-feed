@@ -75,10 +75,13 @@ Adding a column? Update `SCHEMA` in `db.py` AND add a patch in `db.init`:
 
 ## Key constants (top of `cogs/rss.py`)
 
+All values below are defaults; each reads from a same-named `.env` variable at
+module load (`int`/`float`/`int(..., 0)` for hex colors). Unset = the default.
+
 - `MIN_INTERVAL` 120s (enforced with `max()` in `add`, `edit`, and `interval`)
 - `DEFAULT_INTERVAL` 14400s (4h) · `MAX_ITEMS_PER_POLL` 5
 - `FETCH_SPACING` / `SEND_SPACING` 1.0s · `FETCH_TIMEOUT` 20s
-- `MAX_BACKOFF` 3600s (cap on exponential backoff) · `PAGE_SIZE` 10 (rss list)
+- `MAX_BACKOFF` 3600s (cap on exponential backoff) · `PAGE_SIZE` 5 (rss list)
 - `RSS_COLOR` 0xEE802F (orange — use for all embeds in this bot);
   `ERROR_COLOR` 0xE74C3C for failure alerts
 - `WEBHOOK_RE` validates Discord webhook URLs (incl. canary/ptb/discordapp)

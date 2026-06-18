@@ -56,7 +56,7 @@ The project uses a modular discord.py cogs architecture:
   - `seen_entries`: Prevents re-announcing the same feed item; bounded to 500 entries per feed to prevent unbounded growth
 
 - **cogs/rss.py** — The RSS management cog. Contains:
-  - Commands: `rss add`, `rss remove`, `rss list`, `rss edit`, `rss status`, `rss interval`, `rss reset`, `rss poll`. All are pure slash commands on an `app_commands.Group` (`guild_only=True`); everything except `list` requires "Manage Server" via `default_permissions`. `/rss reset` clears every feed's `last_polled`/`etag`/`last_modified` in the guild (via `db.reset_feeds`) so they all re-poll on the next cycle; `seen_entries` and `fail_count` are preserved, so only genuinely new items are announced. The app command tree is synced globally in `setup_hook` (bot.py). `/rss add` defers ephemerally to keep the webhook URL private and survive the 3s interaction deadline; `/rss edit` does the same when a webhook URL is supplied, and `/rss status` replies ephemerally. On a successful add, the feed's newest entry is pushed through the webhook as a preview (also validates the webhook works; the feed is removed again if the send fails). Changing `feed_type` via `/rss edit` re-fetches through the new adapter and sends the same preview; the change is rolled back if it fails. `/rss list` is paginated via `FeedListView` (persistent `discord.ui.View`, 10/page, prev/next buttons). `/rss poll` fetches immediately and pushes the latest entry to the webhook.
+  - Commands: `rss add`, `rss remove`, `rss list`, `rss edit`, `rss status`, `rss interval`, `rss reset`, `rss poll`. All are pure slash commands on an `app_commands.Group` (`guild_only=True`); everything except `list` requires "Manage Server" via `default_permissions`. `/rss reset` clears every feed's `last_polled`/`etag`/`last_modified` in the guild (via `db.reset_feeds`) so they all re-poll on the next cycle; `seen_entries` and `fail_count` are preserved, so only genuinely new items are announced. The app command tree is synced globally in `setup_hook` (bot.py). `/rss add` defers ephemerally to keep the webhook URL private and survive the 3s interaction deadline; `/rss edit` does the same when a webhook URL is supplied, and `/rss status` replies ephemerally. On a successful add, the feed's newest entry is pushed through the webhook as a preview (also validates the webhook works; the feed is removed again if the send fails). Changing `feed_type` via `/rss edit` re-fetches through the new adapter and sends the same preview; the change is rolled back if it fails. `/rss list` is paginated via `FeedListView` (persistent `discord.ui.View`, 5/page, prev/next buttons). `/rss poll` fetches immediately and pushes the latest entry to the webhook.
   - `poller` task: Runs every 60 seconds, finds feeds due for polling, fetches them, detects new entries, and announces via Discord webhook. Failing feeds back off exponentially (`min(interval * 2^fail_count, 3600s)`, computed transiently in `_is_due` — `interval_seconds` is never mutated). A warning embed is sent to the feed's own webhook at the 4th consecutive failure and each doubling (8, 16, …); a ✅ recovery notice is sent when polling succeeds again.
   - Helper functions: `entry_key()` (stable identifier), `clean_summary()` (HTML strip + truncate), `entry_timestamp()` (parse pubdate), `build_embed()` (Discord embed formatting), `extract_icon_url()` (per-feed favicon via Google S2 favicon service)
   - HTTP conditional GET with ETag/Last-Modified to minimize bandwidth
@@ -70,6 +70,18 @@ Via `.env`:
 - `LOG_DIR` — Log directory (default: `storage/logs`)
 - `LOG_BACKUP_COUNT` — Daily log files to keep (default: `7`)
 - `LOG_LEVEL` — Minimum log level (default: `INFO`)
+
+Poller / RSS tunables (all optional, defaults match the values below in **Key Constants**). Each is read once at startup in `cogs/rss.py`; integers via `int(...)`, spacings via `float(...)`, and colors via `int(..., 0)` so `0x`-prefixed hex works:
+- `MIN_INTERVAL` (default: `120`) — floor for per-feed polling interval, seconds
+- `DEFAULT_INTERVAL` (default: `14400`) — default interval for new feeds, seconds
+- `MAX_ITEMS_PER_POLL` (default: `5`) — cap on new announcements per feed per cycle
+- `FETCH_SPACING` (default: `1.0`) — pause between feed fetches within a cycle, seconds
+- `SEND_SPACING` (default: `1.0`) — pause between webhook sends, seconds
+- `FETCH_TIMEOUT` (default: `20`) — HTTP request timeout, seconds
+- `MAX_BACKOFF` (default: `3600`) — cap on the exponential backoff interval, seconds
+- `PAGE_SIZE` (default: `5`) — feeds per page in `/rss list`
+- `RSS_COLOR` (default: `0xEE802F`) — embed color for announcements
+- `ERROR_COLOR` (default: `0xE74C3C`) — embed color for failure alerts
 
 ## Logging
 
@@ -94,7 +106,7 @@ pip install -r requirements.txt
 
 ## Key Constants
 
-In [cogs/rss.py](cogs/rss.py):
+In [cogs/rss.py](cogs/rss.py). The values below are defaults; each is overridable via the matching `.env` variable (see **Configuration**), read once at module load:
 - `MIN_INTERVAL` (120s): Floor for per-feed polling intervals
 - `DEFAULT_INTERVAL` (14400s / 4h): Default polling interval for new feeds
 - `MAX_ITEMS_PER_POLL` (5): Cap new announcements per feed per cycle to avoid floods
@@ -104,8 +116,8 @@ In [cogs/rss.py](cogs/rss.py):
 - `RSS_COLOR` (0xEE802F): Orange color for embeds
 - `ERROR_COLOR` (0xE74C3C): Red color for failure-alert embeds
 - `MAX_BACKOFF` (3600s): Cap on the exponential backoff interval for failing feeds
-- `PAGE_SIZE` (10): Feeds per page in `rss list`
-- `WEBHOOK_RE`: Regex validation for Discord webhook URLs
+- `PAGE_SIZE` (5): Feeds per page in `rss list`
+- `WEBHOOK_RE`: Regex validation for Discord webhook URLs (not env-configurable)
 
 ## Database
 
