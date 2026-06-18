@@ -71,6 +71,18 @@ Via `.env`:
 - `LOG_BACKUP_COUNT` — Daily log files to keep (default: `7`)
 - `LOG_LEVEL` — Minimum log level (default: `INFO`)
 
+Poller / RSS tunables (all optional, defaults match the values below in **Key Constants**). Each is read once at startup in `cogs/rss.py`; integers via `int(...)`, spacings via `float(...)`, and colors via `int(..., 0)` so `0x`-prefixed hex works:
+- `MIN_INTERVAL` (default: `120`) — floor for per-feed polling interval, seconds
+- `DEFAULT_INTERVAL` (default: `14400`) — default interval for new feeds, seconds
+- `MAX_ITEMS_PER_POLL` (default: `5`) — cap on new announcements per feed per cycle
+- `FETCH_SPACING` (default: `1.0`) — pause between feed fetches within a cycle, seconds
+- `SEND_SPACING` (default: `1.0`) — pause between webhook sends, seconds
+- `FETCH_TIMEOUT` (default: `20`) — HTTP request timeout, seconds
+- `MAX_BACKOFF` (default: `3600`) — cap on the exponential backoff interval, seconds
+- `PAGE_SIZE` (default: `5`) — feeds per page in `/rss list`
+- `RSS_COLOR` (default: `0xEE802F`) — embed color for announcements
+- `ERROR_COLOR` (default: `0xE74C3C`) — embed color for failure alerts
+
 ## Logging
 
 Logs go to stdout and to a daily file `{LOG_DIR}/bot-YYYY-MM-DD.log` — the active file carries the current date (`DailyFileHandler`, a `TimedRotatingFileHandler` subclass in [bot.py](bot.py)). Rotation happens at midnight; the latest `LOG_BACKUP_COUNT` daily files are kept, older ones pruned. Handlers are attached to the root logger directly with `addHandler` (NOT `basicConfig`, which is silently skipped if another import configures the root logger first); `bot.run(..., log_handler=None)` routes discord.py's logs through the same handlers. The directory is gitignored.
@@ -94,7 +106,7 @@ pip install -r requirements.txt
 
 ## Key Constants
 
-In [cogs/rss.py](cogs/rss.py):
+In [cogs/rss.py](cogs/rss.py). The values below are defaults; each is overridable via the matching `.env` variable (see **Configuration**), read once at module load:
 - `MIN_INTERVAL` (120s): Floor for per-feed polling intervals
 - `DEFAULT_INTERVAL` (14400s / 4h): Default polling interval for new feeds
 - `MAX_ITEMS_PER_POLL` (5): Cap new announcements per feed per cycle to avoid floods
@@ -105,7 +117,7 @@ In [cogs/rss.py](cogs/rss.py):
 - `ERROR_COLOR` (0xE74C3C): Red color for failure-alert embeds
 - `MAX_BACKOFF` (3600s): Cap on the exponential backoff interval for failing feeds
 - `PAGE_SIZE` (5): Feeds per page in `rss list`
-- `WEBHOOK_RE`: Regex validation for Discord webhook URLs
+- `WEBHOOK_RE`: Regex validation for Discord webhook URLs (not env-configurable)
 
 ## Database
 

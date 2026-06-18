@@ -75,6 +75,9 @@ Adding a column? Update `SCHEMA` in `db.py` AND add a patch in `db.init`:
 
 ## Key constants (top of `cogs/rss.py`)
 
+All values below are defaults; each reads from a same-named `.env` variable at
+module load (`int`/`float`/`int(..., 0)` for hex colors). Unset = the default.
+
 - `MIN_INTERVAL` 120s (enforced with `max()` in `add`, `edit`, and `interval`)
 - `DEFAULT_INTERVAL` 14400s (4h) · `MAX_ITEMS_PER_POLL` 5
 - `FETCH_SPACING` / `SEND_SPACING` 1.0s · `FETCH_TIMEOUT` 20s

@@ -1,4 +1,4 @@
-# PRD — Discord RSS Feed Bot v1.5
+# PRD — Discord RSS Feed Bot v1.6
 
 **Date:** 2026-06-18
 **Status:** Signed off — in progress
@@ -336,3 +336,61 @@ registry edits are needed. `feed_type = "ubuntu"`.
 1. Add `adapters/ubuntu.py` modeled on `adapters/royalroad.py` (guid +
    isPermaLink) plus F5's `copyright` channel field, exporting `ADAPTER`
 2. Update `CLAUDE.md` and `README.md` to document the new feed type
+
+---
+
+## v1.6 — Env-configurable poller tunables (signed off 2026-06-18)
+
+### Problem
+
+The poller/RSS tunables (`MIN_INTERVAL`, `DEFAULT_INTERVAL`,
+`MAX_ITEMS_PER_POLL`, `FETCH_SPACING`, `SEND_SPACING`, `FETCH_TIMEOUT`,
+`MAX_BACKOFF`, `PAGE_SIZE`, `RSS_COLOR`, `ERROR_COLOR`) were hard-coded
+module constants in `cogs/rss.py`. Tuning rate limits, intervals, page size, or
+embed colors for a deployment meant editing source. Operators want to adjust
+these per-environment the same way they already set `DATA_DIR` and the `LOG_*`
+vars — via `.env`.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Operator-tunable without code edits | Each constant is read from a matching `.env` variable at startup |
+| Safe defaults | With no env vars set, behavior is identical to before (same numeric defaults) |
+| Documented | All ten vars appear in `.env.example`, `README.md`, and `CLAUDE.md` with their defaults |
+
+### Design Decisions (locked)
+
+**Same names, same defaults.** The env variable for each constant has the
+identical name and the documented value as its fallback, e.g.
+`MIN_INTERVAL = int(os.getenv("MIN_INTERVAL", "120"))`. No behavior changes
+when the vars are unset.
+
+**Read once at module load.** Values are resolved at import time in
+`cogs/rss.py`, consistent with how `bot.py` reads its config; `load_dotenv()`
+already runs in `bot.py` before the cog loads. Integers parse via `int(...)`,
+spacings via `float(...)`, and colors via `int(..., 0)` so `0x`-prefixed hex
+works.
+
+**`WEBHOOK_RE` stays in code.** The webhook-URL validation regex is not a
+deployment tunable and remains a hard-coded constant.
+
+### Scope
+
+**In scope (v1.6)**
+- Make the ten tunables above read from `.env` with their current values as
+  defaults
+- Document them in `.env.example`, `README.md`, and `CLAUDE.md`
+
+**Out of scope (v1.6)**
+- Runtime reconfiguration (values are read once at startup, not hot-reloaded)
+- Per-guild overrides of any tunable
+- Validation/clamping beyond Python's `int`/`float` parsing
+
+### Implementation Plan
+
+1. In `cogs/rss.py`, wrap each constant in `os.getenv(...)` with the existing
+   value as the string default (add `import os`)
+2. Add all ten vars (commented, with defaults) to `.env.example`
+3. Document them in `README.md` (env table) and `CLAUDE.md` (Configuration +
+   Key Constants)
