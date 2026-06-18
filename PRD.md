@@ -1,4 +1,4 @@
-# PRD — Discord RSS Feed Bot v1.4
+# PRD — Discord RSS Feed Bot v1.5
 
 **Date:** 2026-06-18
 **Status:** Signed off — in progress
@@ -283,3 +283,56 @@ reference it would still be announced.
 2. Add `/rss reset` command in `cogs/rss.py` (Manage Server, guild-scoped)
 3. Add a CVE regex + filter in `adapters/f5.py`'s `entries()`
 4. Update `CLAUDE.md` and `README.md` to document both changes
+
+---
+
+## v1.5 — Ubuntu Security Notices adapter (signed off 2026-06-18)
+
+### Problem
+
+Operators want to surface Ubuntu Security Notices (USN) in Discord, but the
+feed (`https://ubuntu.com/security/notices/rss.xml`) has a vendor-specific
+shape the `generic` parser handles only loosely: a Feedgen `generator`, a
+`copyright` and `docs` channel field, and item `guid`s that are the notice URL
+carrying an `isPermaLink="false"` attribute. A typed adapter makes the source
+first-class and documents its shape, like F5 and Royal Road.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Ubuntu feed is a first-class type | `ubuntu` appears as a `feed_type` choice in `/rss add` and `/rss edit` |
+| Correct parsing | USN items are normalized to the standard entry dict (stable `guid` id, link, title, pubDate, plain-text description) |
+| Pipeline parity | The adapter flows through the poller, `/rss add` preview, and `/rss poll` unchanged |
+
+### Design Decisions (locked)
+
+**No filtering — the whole feed is advisories.** Unlike F5 (which mixes
+product news with security advisories and so filters to CVE items), every item
+in the Ubuntu feed is a USN security notice. `entries()` returns all items;
+nothing is dropped. The plain-text description (which inlines the affected
+CVEs) is kept as-is — `clean_summary()` truncates it at embed time, exactly as
+for generic entries.
+
+**Auto-registration.** The adapter exports `ADAPTER = UbuntuRSSFeed`; the
+registry in `adapters/__init__.py` discovers it at import time, so no cog or
+registry edits are needed. `feed_type = "ubuntu"`.
+
+### Scope
+
+**In scope (v1.5)**
+- `adapters/ubuntu.py` — `UbuntuRSSFeed` adapter (`feed_type = "ubuntu"`) with
+  `from_parsed`, `from_dict`, and `entries`
+- Capture the `copyright`, `generator`, and `docs` channel fields and the item
+  `guid` `isPermaLink` attribute
+
+**Out of scope (v1.5)**
+- CVE-only or per-keyword filtering of Ubuntu items (the feed is already
+  all-advisories; arbitrary keyword filtering stays deferred from v1.1)
+- Parsing the inline CVE list into structured fields
+
+### Implementation Plan
+
+1. Add `adapters/ubuntu.py` modeled on `adapters/royalroad.py` (guid +
+   isPermaLink) plus F5's `copyright` channel field, exporting `ADAPTER`
+2. Update `CLAUDE.md` and `README.md` to document the new feed type

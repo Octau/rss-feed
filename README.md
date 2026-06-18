@@ -6,7 +6,7 @@ via webhooks.
 ## Features
 
 - Add, edit, and remove feeds per server with slash commands
-- Feed adapters for vendor-specific shapes (F5/NGINX support, Royal Road); generic feedparser fallback for everything else
+- Feed adapters for vendor-specific shapes (F5/NGINX support, Royal Road, Ubuntu Security Notices); generic feedparser fallback for everything else
 - Background poller with per-feed intervals, conditional HTTP requests
   (ETag / Last-Modified), and built-in rate limiting
 - Only announces items it hasn't seen before (state kept in SQLite)
@@ -53,6 +53,7 @@ The `feed_type` option on `rss add` / `rss edit` selects a parser adapter:
 | `generic` | Raw feedparser (works for most RSS/Atom feeds) |
 | `f5` | F5 / NGINX Support feed shape — **announces security advisories only**: entries without a `CVE-YYYY-NNNN` reference in the title or description are dropped |
 | `royalroad` | Royal Road fiction feeds |
+| `ubuntu` | Ubuntu Security Notices (USN) feed — every item is a security advisory, so all are announced (no filtering) |
 
 ## Setup
 
@@ -270,7 +271,8 @@ class MySiteFeed:
 ADAPTER = MySiteFeed
 ```
 
-See `adapters/f5.py` and `adapters/royalroad.py` for real examples.
+See `adapters/f5.py`, `adapters/royalroad.py`, and `adapters/ubuntu.py` for
+real examples.
 
 ## Logs
 
