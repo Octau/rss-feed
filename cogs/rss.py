@@ -6,7 +6,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as dtime, timedelta, timezone
 
 import aiohttp
 import discord
@@ -35,6 +35,11 @@ TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = int(os.getenv("MAX_BACKOFF", "3600"))             # cap backoff at 1 hour
 PAGE_SIZE = int(os.getenv("PAGE_SIZE", "5"))                    # feeds per page in rss list
+
+# Daily feed calibration: re-poll every feed (all guilds) at 00:01 GMT+7.
+# Fixed UTC+7 offset (no DST) so a plain timezone() is exact — no tzdata needed.
+GMT7 = timezone(timedelta(hours=7))
+CALIBRATION_TIME = dtime(hour=0, minute=1, tzinfo=GMT7)
 
 
 def _google_favicon(site_url: str) -> str | None:
@@ -165,9 +170,11 @@ class RSS(commands.Cog):
         self.session = aiohttp.ClientSession(
             timeout=FETCH_TIMEOUT, headers={"User-Agent": USER_AGENT})
         self.poller.start()
+        self.calibrator.start()
 
     async def cog_unload(self):
         self.poller.cancel()
+        self.calibrator.cancel()
         if self.session:
             await self.session.close()
 
@@ -218,6 +225,23 @@ class RSS(commands.Cog):
 
     @poller.before_loop
     async def before_poller(self):
+        await self.bot.wait_until_ready()
+
+    # -------------------------------------------------------------- calibration
+
+    @tasks.loop(time=CALIBRATION_TIME)
+    async def calibrator(self):
+        """Daily at 00:01 GMT+7: re-poll every feed across all guilds.
+
+        Same effect as `/rss reset`, applied globally — clears each feed's
+        polling cursors so the next cycle re-fetches fresh, while keeping
+        seen_entries and fail_count so only genuinely new items are announced.
+        """
+        count = await db.reset_all_feeds()
+        log.info("[calibration] reset last-poll for %d feed(s) across all guilds", count)
+
+    @calibrator.before_loop
+    async def before_calibrator(self):
         await self.bot.wait_until_ready()
 
     def _is_due(self, feed, now: float) -> bool:

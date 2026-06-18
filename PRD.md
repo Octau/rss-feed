@@ -1,4 +1,4 @@
-# PRD — Discord RSS Feed Bot v1.6
+# PRD — Discord RSS Feed Bot v1.7
 
 **Date:** 2026-06-18
 **Status:** Signed off — in progress
@@ -394,3 +394,78 @@ deployment tunable and remains a hard-coded constant.
 2. Add all ten vars (commented, with defaults) to `.env.example`
 3. Document them in `README.md` (env table) and `CLAUDE.md` (Configuration +
    Key Constants)
+
+---
+
+## v1.7 — Daily feed calibration cronjob (signed off 2026-06-18)
+
+### Problem
+
+`/rss reset` lets an operator force every feed in **one** guild to re-poll on
+the next cycle (clears `last_polled`/`etag`/`last_modified`, keeps
+`seen_entries`). But it is a manual, per-guild action. After a multi-guild
+outage — a webhook host hiccup, a deploy that missed a cycle, or a feed source
+that briefly served stale conditional-GET headers — there is no hands-off way to
+guarantee every feed across every server re-fetches fresh. Operators want a
+scheduled "calibration" that does the same thing automatically, once a day,
+globally.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Scheduled re-poll of all feeds | A background task clears polling cursors for every feed in every guild once per day |
+| Runs at a fixed local time | Fires at **00:01 GMT+7** every day |
+| Non-destructive | `seen_entries` and `fail_count` are preserved — only genuinely new items are announced; backoff state is intact |
+| Global, not per-guild | Unlike `/rss reset`, the cron is not guild-scoped — it touches all feeds (a cron has no invoking guild) |
+| Observable | Each run logs how many feeds were calibrated |
+
+### Design Decisions (locked)
+
+**Same effect as `/rss reset`, applied globally.** The calibration clears
+`last_polled = 0`, `etag = NULL`, `last_modified = NULL` for **all** feeds
+(every guild), via a new `db.reset_all_feeds()` that mirrors `db.reset_feeds()`
+without the `WHERE guild_id = ?` filter. `seen_entries` and `fail_count` are
+untouched, so the next poller cycle re-fetches each feed but announces only new
+items — identical semantics to the manual command. Because a scheduled job has
+no invoking guild, global scope is the only sensible interpretation of "same
+functionality as `/rss reset`."
+
+**Scheduled with `tasks.loop(time=...)`.** A second `discord.ext.tasks` loop on
+the cog (alongside `poller`) is scheduled with a tz-aware `datetime.time` of
+`00:01` at a fixed `UTC+7` offset (`timezone(timedelta(hours=7))`). discord.py
+runs a `time=`-scheduled loop once per day at that wall-clock time, so no manual
+"is it 00:01 yet?" math is needed. GMT+7 is a fixed offset with no DST, so a
+plain `timezone(timedelta(hours=7))` is exact and needs no `zoneinfo`/`tzdata`
+dependency. The loop starts in `cog_load` and is cancelled in `cog_unload`,
+exactly like `poller`; `before_loop` waits for `bot.wait_until_ready()`.
+
+**Silent except for a log line.** The calibration sends nothing to Discord on
+its own — like `/rss reset`, any announcements come from the subsequent normal
+poller cycle and are limited to new items. Each run emits one
+`[calibration] reset last-poll for <n> feed(s) across all guilds` INFO line.
+
+### Scope
+
+**In scope (v1.7)**
+- `db.reset_all_feeds() -> int` — clear `last_polled`/`etag`/`last_modified`
+  for all feeds in all guilds, return affected row count
+- A `calibrator` `tasks.loop(time=00:01 GMT+7)` task on the RSS cog, started in
+  `cog_load`, cancelled in `cog_unload`
+- Log line per run
+
+**Out of scope (v1.7)**
+- A configurable calibration time (the 00:01 GMT+7 schedule is fixed for now)
+- Per-guild scheduling or opt-out
+- Flushing `seen_entries` on calibration (kept, same as `/rss reset`)
+- A manual "calibrate all guilds now" command (operators use `/rss reset`
+  per guild, or wait for the daily run)
+
+### Implementation Plan
+
+1. Add `db.reset_all_feeds() -> int` mirroring `db.reset_feeds()` without the
+   guild filter
+2. Add `CALIBRATION_TIME = time(0, 1, tzinfo=timezone(timedelta(hours=7)))` and
+   a `calibrator` `tasks.loop(time=CALIBRATION_TIME)` task to `cogs/rss.py`;
+   start/cancel it alongside `poller`
+3. Update `CLAUDE.md` and `README.md` to document the daily calibration

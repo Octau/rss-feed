@@ -133,6 +133,17 @@ embed is sent to the feed's own webhook with the last error and the next retry
 time. When the feed succeeds again, a ✅ recovery notice follows. `/rss status`
 lists all currently unhealthy feeds.
 
+### Daily calibration
+
+Once a day, at **00:01 GMT+7**, a background calibration task re-polls every
+feed across **all** servers automatically — the global, scheduled equivalent of
+running `/rss reset` in each guild. It clears each feed's polling cursors
+(`last_polled`, ETag, Last-Modified) so the next cycle fetches fresh, while
+preserving the seen-item history and failure/backoff state, so only genuinely
+new items are announced. The run is silent in Discord (it only writes a log
+line); any resulting announcements come from the normal poller cycle that
+follows. To force a re-poll for a single server on demand, use `/rss reset`.
+
 ## Database schema
 
 State lives in a single SQLite database at `{DATA_DIR}/rss.sqlite3`
