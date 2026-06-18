@@ -22,7 +22,7 @@ and re-adding, and the poller has no backoff or health visibility.
 | Feed failures are surfaced | Broken feeds visible via `/rss status` and notified to the feed's own webhook on 4th consecutive failure |
 | Edit without re-add | `/rss edit` covers webhook, name, interval, and type |
 | Poller stability | No hot-loop; failing feeds back off with `min(interval * 2^fail_count, 3600s)` |
-| Feed list usable at scale | Pagination works beyond 25 feeds (10/page, prev/next buttons, persistent view) |
+| Feed list usable at scale | Pagination works beyond 25 feeds (5/page, prev/next buttons, persistent view) |
 | Adapter extensibility | Any dev can add a new adapter by following documented steps |
 
 ---
@@ -34,7 +34,7 @@ and re-adding, and the poller has no backoff or health visibility.
 - `/rss status` — show feeds with consecutive failures, including last error message
 - Exponential backoff for consistently failing feeds (computed per-cycle, capped at 1 h)
 - Webhook alert on 4th consecutive failure, and again at each doubling milestone (8, 16, …); ✅ recovery notice on success
-- Pagination for `/rss list` — 10 feeds/page, prev/next buttons, `Page N of M` footer, persistent `discord.ui.View`
+- Pagination for `/rss list` — 5 feeds/page, prev/next buttons, `Page N of M` footer, persistent `discord.ui.View`
 - Persist `fail_count` and `last_error` per feed (two new columns in `feeds`)
 
 ### Out of scope (v1.1)
@@ -95,7 +95,7 @@ If the preview send fails, the type change is rolled back.
 
 ### Pagination
 
-10 feeds/page with `discord.ui.View` prev/next buttons. Buttons are disabled at
+5 feeds/page with `discord.ui.View` prev/next buttons. Buttons are disabled at
 boundaries. Footer shows `Page N of M`. Views are persistent (no 15-minute expiry).
 
 ---
@@ -118,7 +118,7 @@ boundaries. Footer shows `Page N of M`. Views are persistent (no 15-minute expir
 ### Phase 3 — New commands ✅
 10. `rss edit <id|url> [name] [webhook] [interval] [type]`
 11. `rss status` — paginated list of unhealthy feeds (ephemeral/DM)
-12. `rss list` — paginated with `FeedListView` (10/page, persistent)
+12. `rss list` — paginated with `FeedListView` (5/page, persistent)
 13. Update help embed with new commands
 
 ### Phase 4 — Adapter docs ✅

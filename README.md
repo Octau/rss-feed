@@ -27,7 +27,7 @@ All commands are slash commands. `add`, `remove`, `edit`, `status`, `interval`,
 | `/hello` | Greets the invoking user |
 | `/rss add <feed_url> <webhook_url> [interval] [feed_type]` | Register a feed (default interval 4 h, default type `generic`) |
 | `/rss remove <id\|url>` | Stop polling a feed |
-| `/rss list` | List this server's feeds (paginated, 10 per page, prev/next buttons) |
+| `/rss list` | List this server's feeds (paginated, 5 per page, prev/next buttons) |
 | `/rss edit <id\|url> [name] [webhook] [interval] [type]` | Update a feed in place without re-adding it |
 | `/rss status` | Show feeds with consecutive polling failures and their last error |
 | `/rss interval <id\|url> <seconds>` | Change polling interval (min 120 s) |

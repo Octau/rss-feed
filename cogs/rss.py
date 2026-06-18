@@ -31,7 +31,7 @@ ERROR_COLOR = 0xE74C3C
 TAG_RE = re.compile(r"<[^>]+>")
 WEBHOOK_RE = re.compile(r"^https://(canary\.|ptb\.)?discord(app)?\.com/api/webhooks/\d+/\S+$")
 MAX_BACKOFF = 3600          # cap backoff at 1 hour
-PAGE_SIZE = 10              # feeds per page in rss list
+PAGE_SIZE = 5               # feeds per page in rss list
 
 
 def _google_favicon(site_url: str) -> str | None:
