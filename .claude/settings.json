@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=$(jq -r '.tool_input.file_path // \"\"'); if echo \"$f\" | grep -q '\\.py$'; then result=$(python -m pycodestyle --max-line-length=99 \"$f\" 2>&1); if [ -n \"$result\" ]; then jq -n --arg ctx \"PEP 8 violations in $f:\\n$result\" '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":$ctx}}'; fi; fi",
+            "command": "f=$(jq -r '.tool_input.file_path // \"\"'); if echo \"$f\" | grep -q '\\.py$'; then pep=$(venv/bin/python3 -m pycodestyle --max-line-length=99 \"$f\" 2>&1); if echo \"$pep\" | grep -qv 'No module named\\|No such file'; then if [ -n \"$pep\" ]; then jq -n --arg ctx \"PEP 8 violations in $f:\\n$pep\" '{\"hookSpecificOutput\":{\"hookEventName\":\"PostToolUse\",\"additionalContext\":$ctx}}'; fi; fi; fi",
             "statusMessage": "Checking PEP 8..."
           }
         ]
