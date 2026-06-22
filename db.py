@@ -107,12 +107,6 @@ async def due_feeds(now: float) -> list[aiosqlite.Row]:
     return await cur.fetchall()
 
 
-async def set_interval(feed_id: int, seconds: int) -> None:
-    await _conn.execute(
-        "UPDATE feeds SET interval_seconds = ? WHERE id = ?", (seconds, feed_id))
-    await _conn.commit()
-
-
 async def update_feed(feed_id: int, *,
                       name: str | None = None,
                       webhook_url: str | None = None,
@@ -173,13 +167,6 @@ async def unhealthy_feeds(guild_id: int) -> list[aiosqlite.Row]:
         (guild_id,),
     )
     return await cur.fetchall()
-
-
-async def mark_due(feed_id: int) -> None:
-    await _conn.execute(
-        "UPDATE feeds SET last_polled = 0, etag = NULL, last_modified = NULL WHERE id = ?",
-        (feed_id,))
-    await _conn.commit()
 
 
 async def reset_feeds(guild_id: int) -> int:
