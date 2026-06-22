@@ -106,6 +106,37 @@ python bot.py
 pip install -r requirements.txt
 ```
 
+## Deployment (CI/CD)
+
+`.github/workflows/deploy.yml` is a three-stage GitHub Actions pipeline that
+runs on push to `main` (pull requests run `lint` only):
+
+1. **lint** — `pycodestyle bot.py db.py adapters cogs` (max-line-length from
+   `setup.cfg`). Gates the rest: a style failure blocks build and deploy.
+2. **build-push** — `docker/build-push-action` builds and pushes to
+   `ghcr.io/<owner>/rss-feed` (owner lowercased — GHCR rejects uppercase),
+   tagged `latest` + `sha-<commit>`, with `type=gha` layer cache. Guarded by
+   `if: github.event_name == 'push'`.
+3. **deploy** — `appleboy/ssh-action` SSHes to the VPS and runs
+   `docker compose pull && up -d --remove-orphans` then `docker image prune -f`.
+
+A `concurrency` group (`cancel-in-progress: true`) prevents two deploys racing
+onto the VPS.
+
+**Compose split:** `docker-compose.yml` is the production file (lives on the
+VPS, `image: ghcr.io/<owner>/rss-feed:latest`, mounts `bot-data` → `/data` and
+`bot-logs` → `/logs`). `docker-compose.override.yml` is auto-merged by Compose
+**locally only** and restores `build: .`, the source bind-mount, and
+`develop.watch` — it is NOT copied to the VPS, so the host is pull-only. The
+`Dockerfile` declares `VOLUME /data` (SQLite) and `VOLUME /logs` (daily logs);
+`.dockerignore` keeps `.env`, `venv/`, `data/`, `storage/`, VCS, and docs out of
+the build context.
+
+**Required repo secrets:** `VPS_HOST`, `VPS_USER`, `VPS_SSH_KEY` (deploy key
+private half), plus optional `VPS_PORT` (default `22`) and `VPS_APP_DIR`
+(default `~/rss-feed`). `GITHUB_TOKEN` is automatic and authenticates the GHCR
+push/pull. The VPS holds only the production `docker-compose.yml` and an `.env`.
+
 ## Key Constants
 
 In [cogs/rss.py](cogs/rss.py). The values below are defaults; each is overridable via the matching `.env` variable (see **Configuration**), read once at module load:
