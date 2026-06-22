@@ -108,15 +108,19 @@ pip install -r requirements.txt
 
 ## Deployment (CI/CD)
 
-`.github/workflows/deploy.yml` is a three-stage GitHub Actions pipeline that
-runs on push to `main` (pull requests run `lint` only):
+`.github/workflows/deploy.yml` is a three-stage GitHub Actions pipeline. On
+push to `main` it runs all three stages; on pull requests it runs **lint +
+build** (the image is built to verify the `Dockerfile`, but not pushed, and
+deploy is skipped):
 
 1. **lint** — `pycodestyle bot.py db.py adapters cogs` (max-line-length from
    `setup.cfg`). Gates the rest: a style failure blocks build and deploy.
-2. **build-push** — `docker/build-push-action` builds and pushes to
-   `ghcr.io/<owner>/rss-feed` (owner lowercased — GHCR rejects uppercase),
-   tagged `latest` + `sha-<commit>`, with `type=gha` layer cache. Guarded by
-   `if: github.event_name == 'push'`.
+2. **build-push** — `docker/build-push-action` builds the image on every push
+   and PR; it pushes to `ghcr.io/<owner>/rss-feed` (owner lowercased — GHCR
+   rejects uppercase), tagged `latest` + `sha-<commit>`, with `type=gha` layer
+   cache, only on push (`push: ${{ github.event_name == 'push' }}`; the GHCR
+   login step is likewise `push`-only). PRs build-only, catching a broken
+   `Dockerfile` before merge.
 3. **deploy** — `appleboy/ssh-action` SSHes to the VPS and runs
    `docker compose pull && up -d --remove-orphans` then `docker image prune -f`.
 

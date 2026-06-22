@@ -492,7 +492,7 @@ and publishes an image, the VPS pulls and restarts.
 | Reproducible artifact | Each build is published to GHCR tagged `latest` and `sha-<commit>` |
 | No build on the VPS | The VPS pulls a pre-built image; it never compiles the image itself |
 | State survives deploys | SQLite (`/data`) and logs (`/logs`) live on named volumes, untouched by image swaps |
-| PRs are safe | Pull requests run lint only — no publish, no deploy |
+| Docker build checked on PRs | Every PR builds the image (no push, no deploy), so a broken `Dockerfile` is caught before merge |
 
 ### Design Decisions (locked)
 
@@ -506,9 +506,12 @@ secrets. Image name is lowercased in CI because GHCR rejects uppercase paths
 `pycodestyle bot.py db.py adapters cogs` (max-line-length from `setup.cfg`) and
 **gates** everything after it — a style failure stops the run before any image
 is built. `build-push` uses `docker/build-push-action` with GitHub Actions layer
-cache (`type=gha`) and runs on `push` only. `deploy` SSHes to the VPS and rolls
-the container. PRs trigger `lint` alone (`build-push`/`deploy` are guarded with
-`if: github.event_name == 'push'`).
+cache (`type=gha`) and runs on **both push and PR**: it always builds the image
+(so PRs verify the `Dockerfile`), but only *pushes* to GHCR on push to `main`
+(`push: ${{ github.event_name == 'push' }}`; the GHCR login step is likewise
+`push`-only). `deploy` SSHes to the VPS and rolls the container, and is guarded
+with `if: github.event_name == 'push'` so it never runs on a PR. Net: PRs run
+**lint + build** (no publish, no deploy); push to `main` runs all three stages.
 
 **Deploy mechanism: SSH + `docker compose pull && up -d`.** `appleboy/ssh-action`
 connects with a deploy key, then in the app dir runs `docker login ghcr.io`,

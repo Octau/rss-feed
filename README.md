@@ -125,10 +125,11 @@ state is stored in the `bot-data` volume (`/data/rss.sqlite3`) and logs in
 Pushing to `main` runs `.github/workflows/deploy.yml`, a three-stage pipeline:
 
 1. **lint** — `pycodestyle` (PEP 8, max-line-length from `setup.cfg`). A failure
-   blocks the build and deploy. Pull requests run this stage only.
-2. **build-push** — builds the image and publishes it to
-   `ghcr.io/<owner>/rss-feed`, tagged `latest` and `sha-<commit>`, with GitHub
-   Actions layer caching.
+   blocks the build and deploy.
+2. **build-push** — builds the image (on pushes **and** pull requests, so a
+   broken `Dockerfile` is caught before merge) and, **on push to `main` only**,
+   publishes it to `ghcr.io/<owner>/rss-feed`, tagged `latest` and
+   `sha-<commit>`, with GitHub Actions layer caching.
 3. **deploy** — SSHes into the VPS and runs `docker compose pull && up -d
    --remove-orphans` followed by `docker image prune -f`. The VPS only ever
    pulls the pre-built image; it never builds.

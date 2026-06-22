@@ -30,9 +30,10 @@ jobs:
         run: pycodestyle bot.py db.py adapters cogs
 
   build-push:
-    name: Build & push image
+    # Runs on PRs too — there it builds the image (no push) to catch a broken
+    # Dockerfile before merge. On push to main it also publishes to GHCR.
+    name: Build image (push to GHCR on main)
     needs: lint
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,17 +48,19 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
+        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build (and push on main)
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          # Build always (verifies the Dockerfile on PRs); publish only on push.
+          push: ${{ github.event_name == 'push' }}
           tags: |
             ${{ steps.img.outputs.name }}:latest
             ${{ steps.img.outputs.name }}:sha-${{ github.sha }}
