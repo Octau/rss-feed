@@ -33,7 +33,6 @@ class UbuntuRSSItem:
     title: str
     link: str
     guid: str
-    is_permalink: bool  # the guid element's isPermaLink attribute (always false)
     pub_date: str
     description: str  # plain text; inlines the affected CVEs
 
@@ -87,50 +86,11 @@ class UbuntuRSSFeed:
                     title=e.get("title", ""),
                     link=e.get("link", ""),
                     guid=e.get("id") or e.get("link", ""),
-                    is_permalink=bool(e.get("guidislink", False)),
                     pub_date=e.get("published", ""),
                     description=e.get("summary", ""),
                 )
                 for e in parsed.entries
             ],
-        )
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "UbuntuRSSFeed":
-        """Build from the raw object shape: {channel: {..., items: [...]}}.
-
-        ``guid`` arrives as an object carrying the isPermaLink attribute;
-        its text value (when present) sits under a value/#text key.
-        """
-        channel = data.get("channel", data)
-        items = []
-        for i in channel.get("items", []):
-            guid = i.get("guid")
-            if isinstance(guid, dict):
-                is_permalink = bool(guid.get("isPermaLink", False))
-                guid_value = guid.get("value") or guid.get("#text") or ""
-            else:
-                is_permalink = False
-                guid_value = guid or ""
-            items.append(
-                UbuntuRSSItem(
-                    title=i.get("title", ""),
-                    link=i.get("link", ""),
-                    guid=guid_value or i.get("link", ""),
-                    is_permalink=is_permalink,
-                    pub_date=i.get("pubDate", ""),
-                    description=i.get("description", ""),
-                )
-            )
-        return cls(
-            title=channel.get("title", ""),
-            link=channel.get("link", ""),
-            description=channel.get("description", ""),
-            language=channel.get("language", ""),
-            copyright=channel.get("copyright", ""),
-            generator=channel.get("generator", ""),
-            docs=channel.get("docs", ""),
-            items=items,
         )
 
 

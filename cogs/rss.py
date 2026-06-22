@@ -556,7 +556,7 @@ class RSS(commands.Cog):
             return await interaction.response.send_message(
                 "❌ No feed with that id/URL in this server.", ephemeral=True)
         seconds = max(seconds, MIN_INTERVAL)
-        await db.set_interval(feed["id"], seconds)
+        await db.update_feed(feed["id"], interval_seconds=seconds)
         await interaction.response.send_message(
             f"⏱️ **{feed['name']}** now polls every {seconds}s.")
 
