@@ -1,0 +1,21 @@
+# Local development overrides. Docker Compose auto-merges this on top of
+# docker-compose.yml when you run `docker compose up` locally. Do NOT copy
+# this file to the VPS — the production host runs the published image only.
+services:
+  bot:
+    # Build from local source instead of pulling the published image.
+    build: .
+    image: rss-feed:dev
+    volumes:
+      - .:/app
+    # `docker compose watch` restarts the container on source changes.
+    develop:
+      watch:
+        - action: restart
+          path: .
+          ignore:
+            - venv/
+            - __pycache__/
+            - .git/
+            - data/
+            - storage/

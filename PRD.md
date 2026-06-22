@@ -1,6 +1,6 @@
-# PRD — Discord RSS Feed Bot v1.7
+# PRD — Discord RSS Feed Bot v1.8
 
-**Date:** 2026-06-18
+**Date:** 2026-06-22
 **Status:** Signed off — in progress
 
 ---
@@ -469,3 +469,117 @@ poller cycle and are limited to new items. Each run emits one
    a `calibrator` `tasks.loop(time=CALIBRATION_TIME)` task to `cogs/rss.py`;
    start/cancel it alongside `poller`
 3. Update `CLAUDE.md` and `README.md` to document the daily calibration
+
+---
+
+## v1.8 — CI/CD deployment to VPS via GitHub Actions + GHCR (signed off 2026-06-22)
+
+### Problem
+
+The bot ships with a `Dockerfile` and a single `docker-compose.yml`, but every
+deploy to the VPS is manual: SSH in, `git pull`, `docker compose up -d --build`,
+hope the host has enough RAM to build. There is no automated build, no published
+image, no lint gate, and no reproducible "this exact commit is what's running"
+artifact. Operators want a push-to-deploy pipeline: merge to `main`, CI builds
+and publishes an image, the VPS pulls and restarts.
+
+### Success Criteria
+
+| Metric | Target |
+|---|---|
+| Push-to-deploy | A push to `main` builds, publishes, and rolls the VPS container with no manual SSH |
+| Lint gate | A PEP 8 (`pycodestyle`) failure blocks the build and deploy |
+| Reproducible artifact | Each build is published to GHCR tagged `latest` and `sha-<commit>` |
+| No build on the VPS | The VPS pulls a pre-built image; it never compiles the image itself |
+| State survives deploys | SQLite (`/data`) and logs (`/logs`) live on named volumes, untouched by image swaps |
+| Docker build checked on PRs | Every PR builds the image (no push, no deploy), so a broken `Dockerfile` is caught before merge |
+
+### Design Decisions (locked)
+
+**Registry: GitHub Container Registry (GHCR).** Image published to
+`ghcr.io/<owner>/rss-feed`. GHCR needs no extra account and authenticates with
+the built-in `GITHUB_TOKEN` (scope `packages: write`) — no third-party registry
+secrets. Image name is lowercased in CI because GHCR rejects uppercase paths
+(the owner is `Octau`).
+
+**Three-stage pipeline (`lint` → `build-push` → `deploy`).** `lint` runs
+`pycodestyle bot.py db.py adapters cogs` (max-line-length from `setup.cfg`) and
+**gates** everything after it — a style failure stops the run before any image
+is built. `build-push` uses `docker/build-push-action` with GitHub Actions layer
+cache (`type=gha`) and runs on **both push and PR**: it always builds the image
+(so PRs verify the `Dockerfile`), but only *pushes* to GHCR on push to `main`
+(`push: ${{ github.event_name == 'push' }}`; the GHCR login step is likewise
+`push`-only). `deploy` SSHes to the VPS and rolls the container, and is guarded
+with `if: github.event_name == 'push'` so it never runs on a PR. Net: PRs run
+**lint + build** (no publish, no deploy); push to `main` runs all three stages.
+
+**Deploy mechanism: SSH + `docker compose pull && up -d`.** `appleboy/ssh-action`
+connects with a deploy key, then in the app dir runs `docker login ghcr.io`,
+`docker compose pull`, `docker compose up -d --remove-orphans`, and
+`docker image prune -f`. The VPS holds only the production `docker-compose.yml`
+(pulls the published image) and an `.env`; it never builds.
+
+**Two compose files split build-vs-pull.** `docker-compose.yml` (production,
+lives on the VPS) references `image: ghcr.io/<owner>/rss-feed:latest`.
+`docker-compose.override.yml` (local dev, auto-merged by Compose, NOT copied to
+the VPS) restores `build: .`, the source bind-mount, and `develop.watch`. This
+keeps the prod host pull-only while local dev stays build-from-source.
+
+**Logs persist on a named volume.** The `Dockerfile` adds `ENV LOG_DIR=/logs`
+and `VOLUME /logs`; prod compose mounts a `bot-logs` volume so daily log files
+survive image swaps, mirroring the existing `/data` SQLite volume.
+
+**`concurrency` guard.** One pipeline run per ref at a time
+(`cancel-in-progress: true`) so a rapid second push doesn't race two deploys
+onto the VPS.
+
+### Scope
+
+**In scope (v1.8)**
+- `.github/workflows/deploy.yml` — `lint` → `build-push` → `deploy` pipeline
+- `.dockerignore` — keep `.env`, `venv/`, `data/`, `storage/`, VCS, and docs out
+  of the build context/image
+- `Dockerfile` — add `LOG_DIR=/logs` env + `VOLUME /logs`
+- `docker-compose.yml` — switch to `image:` (pull) for production, add `bot-logs`
+  volume
+- `docker-compose.override.yml` — local dev overrides (build, bind-mount, watch)
+- Documented GitHub secrets and one-time VPS setup
+
+**Out of scope (v1.8)**
+- Automated tests in the pipeline (repo has none yet)
+- Multi-arch (arm64) image builds
+- Staging environment / blue-green or zero-downtime rollout
+- Container health checks / auto-rollback on a crashing image
+- Tag/release-triggered deploys (deploy is `push`-to-`main` only)
+- Secret management beyond GitHub Actions secrets (no Vault/SOPS)
+
+### Required GitHub secrets
+
+| Secret | Purpose |
+|---|---|
+| `VPS_HOST` | VPS hostname or IP |
+| `VPS_USER` | SSH login user (must be in the `docker` group) |
+| `VPS_SSH_KEY` | Private key whose public half is in the VPS `authorized_keys` |
+| `VPS_PORT` | SSH port (optional; defaults to `22`) |
+| `VPS_APP_DIR` | App dir on the VPS holding `docker-compose.yml` + `.env` (optional; defaults to `~/rss-feed`) |
+
+`GITHUB_TOKEN` is provided automatically by Actions — no setup needed.
+
+### One-time VPS setup
+
+1. Install Docker Engine + the Compose plugin; add the deploy user to the
+   `docker` group.
+2. `mkdir ~/rss-feed` and copy **only** the production `docker-compose.yml` there
+   (not the override).
+3. Create `~/rss-feed/.env` with `DISCORD_TOKEN=...` (and any tunables).
+4. Add the deploy key's public half to `~/.ssh/authorized_keys`; store the
+   private half as the `VPS_SSH_KEY` repo secret.
+
+### Implementation Plan
+
+1. Add `.dockerignore`; extend `Dockerfile` with `LOG_DIR`/`VOLUME /logs`.
+2. Convert `docker-compose.yml` to pull the GHCR image + add `bot-logs`; move
+   build/bind-mount/watch into `docker-compose.override.yml`.
+3. Add `.github/workflows/deploy.yml` (`lint` → `build-push` → `deploy`).
+4. Update `CLAUDE.md` and `README.md` to document the pipeline, secrets, and VPS
+   setup.

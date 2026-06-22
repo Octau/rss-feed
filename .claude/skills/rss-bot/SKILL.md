@@ -134,7 +134,14 @@ pip install -r requirements.txt
 python bot.py
 ```
 
-Docker: `Dockerfile` + `docker-compose.yml` exist at the repo root.
+Docker: `Dockerfile` + `docker-compose.yml` (production, pulls the GHCR image)
++ `docker-compose.override.yml` (local dev: `build: .`, bind-mount, watch —
+auto-merged by Compose locally, NOT copied to the VPS) at the repo root.
+CI/CD: `.github/workflows/deploy.yml` runs `lint` (pycodestyle, gates) →
+`build-push` (image to `ghcr.io/<owner>/rss-feed`) → `deploy` (SSH to VPS,
+`docker compose pull && up -d`). Push to `main` runs all three; PRs run
+lint + build (the image is built to verify the `Dockerfile` but not pushed,
+`push: ${{ github.event_name == 'push' }}`; deploy is `push`-guarded).
 There are currently **no tests** in this repo.
 
 ## Maintaining this skill

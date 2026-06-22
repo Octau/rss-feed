@@ -15,6 +15,8 @@ via webhooks.
 - Delivery via Discord webhooks with formatted embeds and per-feed favicon avatars
 - Daily log files with configurable retention and level
 - Container-ready: Dockerfile + docker-compose, state on a volume
+- Push-to-deploy CI/CD: GitHub Actions lints, builds, and publishes a Docker
+  image to GHCR, then rolls the container on the VPS over SSH
 
 ## Commands
 
@@ -112,8 +114,58 @@ git config core.hooksPath .githooks
 docker compose up -d --build
 ```
 
-Feed state is stored in the `bot-data` volume (`/data/rss.sqlite3`), so polling
-history survives restarts and redeploys.
+Locally, Compose auto-merges `docker-compose.override.yml` on top of
+`docker-compose.yml`, so the command above builds from source, bind-mounts the
+working tree, and (with `docker compose watch`) live-reloads on changes. Feed
+state is stored in the `bot-data` volume (`/data/rss.sqlite3`) and logs in
+`bot-logs` (`/logs`), so history survives restarts and redeploys.
+
+## Deployment (CI/CD)
+
+Pushing to `main` runs `.github/workflows/deploy.yml`, a three-stage pipeline:
+
+1. **lint** — `pycodestyle` (PEP 8, max-line-length from `setup.cfg`). A failure
+   blocks the build and deploy.
+2. **build-push** — builds the image (on pushes **and** pull requests, so a
+   broken `Dockerfile` is caught before merge) and, **on push to `main` only**,
+   publishes it to `ghcr.io/<owner>/rss-feed`, tagged `latest` and
+   `sha-<commit>`, with GitHub Actions layer caching.
+3. **deploy** — SSHes into the VPS and runs `docker compose pull && up -d
+   --remove-orphans` followed by `docker image prune -f`. The VPS only ever
+   pulls the pre-built image; it never builds.
+
+The production `docker-compose.yml` references the published image
+(`image: ghcr.io/<owner>/rss-feed:latest`); the build/bind-mount/watch settings
+for local development live in `docker-compose.override.yml`, which is **not**
+copied to the VPS.
+
+### Required repository secrets
+
+Set these in **Settings → Secrets and variables → Actions**:
+
+| Secret | Purpose |
+| --- | --- |
+| `VPS_HOST` | VPS hostname or IP |
+| `VPS_USER` | SSH login user (must be in the `docker` group) |
+| `VPS_SSH_KEY` | Private key whose public half is in the VPS `authorized_keys` |
+| `VPS_PORT` | SSH port (optional, defaults to `22`) |
+| `VPS_APP_DIR` | App dir holding `docker-compose.yml` + `.env` (optional, defaults to `~/rss-feed`) |
+
+`GITHUB_TOKEN` is provided automatically and authenticates the GHCR push — no
+setup needed.
+
+### One-time VPS setup
+
+1. Install Docker Engine + the Compose plugin; add the deploy user to the
+   `docker` group.
+2. `mkdir ~/rss-feed` and copy **only** the production `docker-compose.yml`
+   there (not the override).
+3. Create `~/rss-feed/.env` with `DISCORD_TOKEN=...` (and any tunables from the
+   table above).
+4. Add the deploy key's public half to the VPS user's
+   `~/.ssh/authorized_keys`; store the private half as the `VPS_SSH_KEY` secret.
+
+After that, every push to `main` deploys automatically.
 
 ## How polling works
 

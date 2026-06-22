@@ -1,21 +1,19 @@
+# Production compose file. Lives on the VPS and pulls the image published by
+# CI (.github/workflows/deploy.yml). For local development the settings in
+# docker-compose.override.yml are auto-merged on top of this (build from
+# source, bind-mount, live reload) — that override is NOT copied to the VPS.
 services:
   bot:
-    build: .
+    image: ${IMAGE:-ghcr.io/octau/rss-feed:latest}
     restart: unless-stopped
     env_file: .env
     environment:
       - DATA_DIR=/data
+      - LOG_DIR=/logs
     volumes:
       - bot-data:/data
-      - .:/app
-    develop:
-      watch:
-        - action: restart
-          path: .
-          ignore:
-            - venv/
-            - __pycache__/
-            - .git/
+      - bot-logs:/logs
 
 volumes:
   bot-data:
+  bot-logs:

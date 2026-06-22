@@ -11,4 +11,8 @@ COPY . .
 ENV DATA_DIR=/data
 VOLUME /data
 
+# Daily log files live here; mount a volume to keep them across restarts.
+ENV LOG_DIR=/logs
+VOLUME /logs
+
 CMD ["python", "bot.py"]

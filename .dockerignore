@@ -1,0 +1,26 @@
+# Secrets — never bake into the image
+.env
+
+# Local state — provided at runtime via volumes
+data/
+storage/
+
+# Python / virtualenv cruft
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# VCS & tooling
+.git/
+.gitignore
+.githooks/
+.github/
+.claude/
+
+# Docs & local compose overrides (not needed in the image)
+*.md
+docker-compose*.yml
+.dockerignore
+LICENSE
